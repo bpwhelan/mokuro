@@ -65,13 +65,13 @@ class GoogleLensOCR:
                             text_parts.append(segment['text'])
                 
                 # Add rate limiting delay for Google Lens OCR
-                time.sleep(3)
+                time.sleep(0.5)
                 return ''.join(text_parts)
             except json.JSONDecodeError:
                 # If JSON parsing fails, return the raw output
                 logger.warning("Failed to parse JSON from Google Lens OCR, using raw output")
                 # Add rate limiting delay even for failed JSON parsing (successful OCR call)
-                time.sleep(3)
+                time.sleep(0.5)
                 return result.stdout.strip()
                 
         except subprocess.CalledProcessError as e:
