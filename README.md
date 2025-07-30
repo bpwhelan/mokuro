@@ -20,10 +20,14 @@ You can transfer the resulting HTML file together with manga images to another d
 This method is still supported for backward compatibility, but it is recommended to use the new .mokuro format and the web reader.
 For details, see [Legacy HTML vs. new .mokuro format](#legacy-html-vs-new-mokuro-format).
 
-mokuro uses [comic-text-detector](https://github.com/dmMaze/comic-text-detector) for text detection
-and supports two OCR engines:
-- [manga-ocr](https://github.com/kha-white/manga-ocr) (default) - specialized for manga
-- [Google Lens OCR](https://github.com/dimdenGD/chrome-lens-ocr) - via `--lens` flag
+## Enhanced Dual OCR Fork
+
+This is an enhanced fork of mokuro that supports **dual OCR engines** with separate file naming:
+
+- 🔥 **[manga-ocr](https://github.com/kha-white/manga-ocr)** (default) - Fast, offline, specialized for Japanese manga
+- 🌐 **[Google Lens OCR](https://github.com/dimdenGD/chrome-lens-ocr)** (`--lens` flag) - Multilingual, excellent for mixed content
+
+Both engines use [comic-text-detector](https://github.com/dmMaze/comic-text-detector) for text detection, ensuring identical text localization with your choice of OCR recognition.
 
 Try running on your manga in Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kha-white/mokuro/blob/master/notebooks/mokuro_demo.ipynb)
 
@@ -34,9 +38,10 @@ See also:
 
 # Installation
 
-You need Python 3.6 or newer. Please note, that the newest Python release might not be supported due to a PyTorch dependency, 
-which often breaks with new Python releases and needs some time to catch up.
-Refer to [PyTorch website](https://pytorch.org/get-started/locally/) for a list of supported Python versions.
+## Prerequisites
+
+- **Python 3.8+** (with pip) - Note: newest Python releases might not be supported due to PyTorch dependency. Refer to [PyTorch website](https://pytorch.org/get-started/locally/) for supported versions.
+- **Node.js 16+** (with npm) - *Optional, only needed for Google Lens OCR*
 
 Some users have reported problems with Python installed from Microsoft Store. If you see an error:
 `ImportError: DLL load failed while importing fugashi: The specified module could not be found.`,
@@ -45,18 +50,41 @@ try installing Python from the [official site](https://www.python.org/downloads)
 If you want to run with GPU, install PyTorch as described [here](https://pytorch.org/get-started/locally/#start-locally),
 otherwise this step can be skipped.
 
-Run in command line:
+## Install Enhanced Dual OCR Version (Recommended)
 
-```commandline
-pip3 install mokuro
-```
+This enhanced version supports both manga-ocr and Google Lens OCR engines with separate file naming:
 
-**For Google Lens OCR support (optional):**
-```commandline
+```bash
+# Clone with submodules (required for comic-text-detector)
+git clone --recurse-submodules https://github.com/xrishox/mokuro.git
+cd mokuro
+
+# Install Python dependencies
+pip install -e .
+
+# Optional: Install Node.js dependencies for Google Lens OCR
 npm install -g chrome-lens-ocr
 ```
 
-**Note:** The Google Lens OCR engine requires Node.js and the chrome-lens-ocr package. It provides free access to Google Lens OCR without requiring authentication. By default, mokuro uses manga-ocr which doesn't require additional setup.
+## Install Original Version (PyPI)
+
+For the original manga-ocr only version:
+
+```bash
+pip3 install mokuro
+```
+
+**Note:** The PyPI version only supports manga-ocr. For dual OCR engine support (manga-ocr + Google Lens), use the enhanced installation above.
+
+## OCR Engine Features
+
+| Feature | manga-ocr (default) | Google Lens (`--lens`) |
+|---------|---------------------|------------------------|
+| **Speed** | ~1.7s/page | ~5.8s/page |
+| **Connectivity** | Offline | Online required |
+| **Languages** | Japanese-optimized | Multilingual |
+| **Setup** | Included | Requires Node.js |
+| **Accuracy** | Excellent for manga | Excellent for mixed content |
 
 # Usage
 
@@ -79,14 +107,74 @@ mokuro "/path/to/manga/volume 1"
 By default, mokuro uses manga-ocr. You can explicitly choose an OCR engine:
 
 ```bash
-# Use manga-ocr (default)
+# Use manga-ocr (default) - creates .mo.html and .mo.mokuro files
 mokuro /path/to/manga/vol1
 
-# Use Google Lens OCR
+# Use Google Lens OCR - creates .gl.html and .gl.mokuro files  
 mokuro /path/to/manga/vol1 --lens
 
 # Explicitly specify manga-ocr
 mokuro /path/to/manga/vol1 --manga-ocr
+
+# Process multiple volumes with different engines
+mokuro --parent-dir /path/to/manga --lens    # All volumes with Google Lens
+mokuro --parent-dir /path/to/manga           # All volumes with manga-ocr
+```
+
+## File Output Comparison
+
+Each OCR engine creates separate output files, allowing you to compare results:
+
+```
+manga-volume/
+├── manga-volume.mo.html     ← manga-ocr HTML output  
+├── manga-volume.mo.mokuro   ← manga-ocr mokuro format
+├── manga-volume.gl.html     ← Google Lens HTML output
+├── manga-volume.gl.mokuro   ← Google Lens mokuro format
+└── _ocr/
+    ├── manga-volume.mo/     ← manga-ocr cache (*.mo.json)
+    └── manga-volume.gl/     ← Google Lens cache (*.gl.json)
+```
+
+## Cache System
+
+Each OCR engine maintains separate cache directories:
+- `_ocr/volume.mo/` - manga-ocr results (*.mo.json files)
+- `_ocr/volume.gl/` - Google Lens results (*.gl.json files)
+
+This allows switching between OCR engines without losing previous results.
+
+## Troubleshooting
+
+### Google Lens OCR Issues
+
+If you encounter issues with `--lens`:
+
+```bash
+# Check if chrome-lens-ocr is installed
+chrome-lens-ocr --help
+
+# Install/reinstall if needed
+npm install -g chrome-lens-ocr
+
+# Check Node.js version (requires 16+)
+node --version
+```
+
+### Performance Tips
+
+- **manga-ocr**: Faster, works offline, best for pure Japanese manga
+- **Google Lens**: Slower but handles mixed languages and non-standard fonts better
+- Use `--force_cpu` if you have GPU memory issues (affects text detection only)
+- Both engines use the same text detection, so text localization is identical
+
+### Submodule Issues
+
+If comic-text-detector is missing after cloning:
+
+```bash
+# Initialize submodules in existing repo
+git submodule update --init --recursive
 ```
 
 ## Run on multiple volumes
