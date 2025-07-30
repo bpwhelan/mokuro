@@ -92,7 +92,14 @@ def run(
             ):
                 paths.append(p)
 
-    vc = VolumeCollection()
+    # Determine OCR engine first
+    if lens and manga_ocr:
+        logger.error("Cannot specify both --lens and --manga-ocr flags. Choose one or use default (manga-ocr).")
+        return
+    
+    ocr_engine = "lens" if lens else "manga-ocr"
+
+    vc = VolumeCollection(ocr_engine=ocr_engine)
 
     for path_in in paths:
         vc.add_path_in(path_in)
@@ -119,13 +126,6 @@ def run(
         inp = input("\nContinue? [yes/no]")
         if inp.lower() not in ("y", "yes"):
             return
-
-    # Determine OCR engine
-    if lens and manga_ocr:
-        logger.error("Cannot specify both --lens and --manga-ocr flags. Choose one or use default (manga-ocr).")
-        return
-    
-    ocr_engine = "lens" if lens else "manga-ocr"
     
     if ocr_engine == "lens":
         logger.info("Using Google Lens OCR engine")
