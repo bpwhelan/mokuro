@@ -25,6 +25,8 @@ def run(
     legacy_html: bool = True,
     as_one_file: bool = True,
     version: bool = False,
+    lens: bool = False,
+    manga_ocr: bool = False,
 ):
     """
     Process manga volumes with mokuro.
@@ -32,8 +34,8 @@ def run(
     Args:
         paths: Paths to manga volumes. Volume can be a directory, a zip file or a cbz file.
         parent_dir: Parent directory to scan for volumes. If provided, all volumes inside this directory will be processed.
-        pretrained_model_name_or_path: Name or path of the manga-ocr model.
-        force_cpu: Force the use of CPU even if CUDA is available.
+        pretrained_model_name_or_path: Name or path of the manga-ocr model (only used with manga-ocr engine).
+        force_cpu: Force the use of CPU even if CUDA is available (only affects text detection and manga-ocr).
         disable_confirmation: Disable confirmation prompt. If False, the user will be prompted to confirm the list of volumes to be processed.
         disable_ocr: Disable OCR processing. Generate mokuro/HTML files without OCR results.
         ignore_errors: Continue processing volumes even if an error occurs.
@@ -42,6 +44,8 @@ def run(
         legacy_html: Enable legacy HTML output. If True, acts as if --unzip is True.
         as_one_file: Applies only to legacy HTML. If False, generate separate CSS and JS files instead of embedding them in the HTML file.
         version: Print the version of mokuro and exit.
+        lens: Use Google Lens OCR engine instead of manga-ocr.
+        manga_ocr: Use manga-ocr engine (default behavior, explicit flag for clarity).
     """
 
     if version:
@@ -116,8 +120,23 @@ def run(
         if inp.lower() not in ("y", "yes"):
             return
 
+    # Determine OCR engine
+    if lens and manga_ocr:
+        logger.error("Cannot specify both --lens and --manga-ocr flags. Choose one or use default (manga-ocr).")
+        return
+    
+    ocr_engine = "lens" if lens else "manga-ocr"
+    
+    if ocr_engine == "lens":
+        logger.info("Using Google Lens OCR engine")
+    else:
+        logger.info("Using manga-ocr engine")
+
     mg = MokuroGenerator(
-        pretrained_model_name_or_path=pretrained_model_name_or_path, force_cpu=force_cpu, disable_ocr=disable_ocr
+        pretrained_model_name_or_path=pretrained_model_name_or_path,
+        force_cpu=force_cpu, 
+        disable_ocr=disable_ocr,
+        ocr_engine=ocr_engine
     )
 
     with TemporaryDirectory() as tmp_dir:

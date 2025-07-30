@@ -1,5 +1,9 @@
 import cv2
 import numpy as np
+import json
+import subprocess
+import tempfile
+import os
 from PIL import Image
 from loguru import logger
 from scipy.signal.windows import gaussian
@@ -17,6 +21,63 @@ class InvalidImage(Exception):
         super().__init__(message)
 
 
+class GoogleLensOCR:
+    def __init__(self):
+        # Check if our Node.js wrapper exists
+        wrapper_path = os.path.join(os.path.dirname(__file__), '..', 'lens_ocr_wrapper.js')
+        if not os.path.exists(wrapper_path):
+            logger.error("lens_ocr_wrapper.js not found. Make sure Node.js wrapper is in the project root.")
+            raise Exception("Google Lens OCR wrapper not found")
+        
+        self.wrapper_path = wrapper_path
+        
+        # Check if Node.js is available
+        try:
+            subprocess.run(['node', '--version'], capture_output=True, check=True)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            logger.error("Node.js not found. Please install Node.js to use Google Lens OCR")
+            raise Exception("Node.js not installed")
+    
+    def __call__(self, pil_image):
+        """
+        Process a PIL Image using Google Lens OCR
+        Returns the extracted text as a string
+        """
+        # Save the image to a temporary file
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+            temp_path = temp_file.name
+            pil_image.save(temp_path, 'PNG')
+        
+        try:
+            # Call our Node.js wrapper
+            result = subprocess.run(['node', self.wrapper_path, temp_path], 
+                                    capture_output=True, text=True, check=True)
+            
+            # Parse the JSON output
+            try:
+                ocr_result = json.loads(result.stdout)
+                # Extract text from all segments
+                text_parts = []
+                if 'segments' in ocr_result:
+                    for segment in ocr_result['segments']:
+                        if 'text' in segment:
+                            text_parts.append(segment['text'])
+                
+                return ''.join(text_parts)
+            except json.JSONDecodeError:
+                # If JSON parsing fails, return the raw output
+                logger.warning("Failed to parse JSON from Google Lens OCR, using raw output")
+                return result.stdout.strip()
+                
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Google Lens OCR failed: {e.stderr}")
+            return ""
+        finally:
+            # Clean up the temporary file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+
 class MangaPageOcr:
     def __init__(
         self,
@@ -28,12 +89,14 @@ class MangaPageOcr:
         max_ratio_hor=8,
         anchor_window=2,
         disable_ocr=False,
+        ocr_engine="manga-ocr",  # "manga-ocr" or "lens"
     ):
         self.text_height = text_height
         self.max_ratio_vert = max_ratio_vert
         self.max_ratio_hor = max_ratio_hor
         self.anchor_window = anchor_window
         self.disable_ocr = disable_ocr
+        self.ocr_engine = ocr_engine
 
         if not self.disable_ocr:
             cuda = torch.cuda.is_available()
@@ -42,7 +105,13 @@ class MangaPageOcr:
             self.text_detector = TextDetector(
                 model_path=cache.comic_text_detector, input_size=detector_input_size, device=device, act="leaky"
             )
-            self.mocr = MangaOcr(pretrained_model_name_or_path, force_cpu)
+            
+            if self.ocr_engine == "lens":
+                logger.info("Initializing Google Lens OCR")
+                self.ocr_model = GoogleLensOCR()
+            else:  # Default to manga-ocr
+                logger.info("Initializing Manga OCR")
+                self.ocr_model = MangaOcr(pretrained_model_name_or_path, force_cpu)
 
     def __call__(self, img_path):
         img = imread(img_path)
@@ -84,7 +153,7 @@ class MangaPageOcr:
                 for line_crop in line_crops:
                     if blk.vertical:
                         line_crop = cv2.rotate(line_crop, cv2.ROTATE_90_CLOCKWISE)
-                    line_text += self.mocr(Image.fromarray(line_crop))
+                    line_text += self.ocr_model(Image.fromarray(line_crop))
 
                 result_blk["lines_coords"].append(line.tolist())
                 result_blk["lines"].append(line_text)

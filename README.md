@@ -21,7 +21,9 @@ This method is still supported for backward compatibility, but it is recommended
 For details, see [Legacy HTML vs. new .mokuro format](#legacy-html-vs-new-mokuro-format).
 
 mokuro uses [comic-text-detector](https://github.com/dmMaze/comic-text-detector) for text detection
-and [manga-ocr](https://github.com/kha-white/manga-ocr) for OCR.
+and supports two OCR engines:
+- [manga-ocr](https://github.com/kha-white/manga-ocr) (default) - specialized for manga
+- [Google Lens OCR](https://github.com/dimdenGD/chrome-lens-ocr) - via `--lens` flag
 
 Try running on your manga in Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kha-white/mokuro/blob/master/notebooks/mokuro_demo.ipynb)
 
@@ -49,6 +51,13 @@ Run in command line:
 pip3 install mokuro
 ```
 
+**For Google Lens OCR support (optional):**
+```commandline
+npm install -g chrome-lens-ocr
+```
+
+**Note:** The Google Lens OCR engine requires Node.js and the chrome-lens-ocr package. It provides free access to Google Lens OCR without requiring authentication. By default, mokuro uses manga-ocr which doesn't require additional setup.
+
 # Usage
 
 ## Run on one volume
@@ -63,6 +72,21 @@ If your path contains spaces, enclose it in double quotes, like this:
 
 ```bash
 mokuro "/path/to/manga/volume 1"
+```
+
+## Choose OCR Engine
+
+By default, mokuro uses manga-ocr. You can explicitly choose an OCR engine:
+
+```bash
+# Use manga-ocr (default)
+mokuro /path/to/manga/vol1
+
+# Use Google Lens OCR
+mokuro /path/to/manga/vol1 --lens
+
+# Explicitly specify manga-ocr
+mokuro /path/to/manga/vol1 --manga-ocr
 ```
 
 ## Run on multiple volumes
