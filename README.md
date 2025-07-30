@@ -58,6 +58,7 @@ This enhanced version supports both manga-ocr and Google Lens OCR engines with s
 # Clone with submodules (required for comic-text-detector)
 git clone --recurse-submodules https://github.com/xrishox/mokuro.git
 cd mokuro
+pip install -r requirements.txt
 
 # Install Python dependencies
 pip install -e .
