@@ -64,10 +64,13 @@ class MokuroGenerator:
                     already_processed = False
 
                 if no_cache or not already_processed:
+                    logger.debug(f"Processing {img_path_rel} with OCR engine: {self.ocr_engine}")
                     self.init_models()
                     result = self.mpocr(volume.path_in / img_path_rel)
                     json_path.parent.mkdir(parents=True, exist_ok=True)
                     dump_json(result, json_path)
+                else:
+                    logger.debug(f"Using cached OCR results for {img_path_rel} (no rate limiting)")
             except Exception as e:
                 if ignore_errors:
                     logger.error(e)
