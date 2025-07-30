@@ -1,0 +1,54 @@
+# Mokuro - Browser reader for manga with selectable text
+# Core dependencies from pyproject.toml
+
+# Command line interface
+fire
+
+# Logging
+loguru
+
+# OCR engines
+manga-ocr>=0.1.7
+
+# Sorting and data manipulation
+natsort
+numpy
+scipy
+
+# Computer vision and image processing
+opencv-python>=4.1.2
+Pillow>=7.1.2
+
+# Geometry and shape processing
+pyclipper
+shapely
+
+# HTTP requests
+requests
+
+# Build/packaging
+setuptools
+
+# Deep learning
+torch>=1.7.0
+torchvision>=0.8.1
+torchsummary
+
+# NLP transformers (for advanced OCR models)
+transformers>=4.25.0
+
+# Progress bars
+tqdm>=4.41.0
+
+# HTML generation
+yattag
+
+# Additional dependencies from comic_text_detector submodule
+# ONNX support for model inference (optional - requires cmake)
+# Uncomment the lines below if you need ONNX support and have cmake installed:
+# onnx>=1.9.0
+# onnx-simplifier>=0.3.6
+
+# Optional development dependencies (uncomment if needed)
+# pytest
+# ruff
