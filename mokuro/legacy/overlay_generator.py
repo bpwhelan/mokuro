@@ -52,12 +52,15 @@ def generate_legacy_html(volume: Volume, as_one_file=True, is_demo=False, ignore
         shutil.copy(PANZOOM_PATH, out_dir / "panzoom.min.js")
 
     img_paths = volume.get_img_paths()
+    
+    # Generate OCR engine suffix for JSON files
+    json_suffix = ".mo.json" if volume.ocr_engine == "manga-ocr" else ".gl.json"
 
     page_htmls = []
 
     for img_path_rel in img_paths.values():
         try:
-            json_path = (volume.path_ocr_cache / img_path_rel).with_suffix(".json")
+            json_path = (volume.path_ocr_cache / img_path_rel).with_suffix(json_suffix)
             assert json_path.is_file(), f"missing {json_path}"
             result = load_json(json_path)
             page_html = get_page_html(result, volume.path_in.name / img_path_rel)
@@ -73,7 +76,10 @@ def generate_legacy_html(volume: Volume, as_one_file=True, is_demo=False, ignore
     else:
         html_title = f"{volume.name} | mokuro"
     index_html = get_index_html(page_htmls, html_title, as_one_file, is_demo)
-    (out_dir / (volume.path_in.name + ".html")).write_text(index_html, encoding="utf-8")
+    
+    # Generate OCR engine suffix for HTML files
+    html_suffix = ".mo.html" if volume.ocr_engine == "manga-ocr" else ".gl.html"
+    (out_dir / (volume.path_in.name + html_suffix)).write_text(index_html, encoding="utf-8")
 
 
 def get_index_html(page_htmls, html_title, as_one_file=True, is_demo=False):

@@ -63,9 +63,10 @@ class Title:
 class Volume:
     format_preference_order = ["", ".cbz", ".zip"]
 
-    def __init__(self, path_in):
+    def __init__(self, path_in, ocr_engine="manga-ocr"):
         self.paths_in = {path_in}
-        self.path_mokuro = get_path_mokuro(path_in)
+        self.ocr_engine = ocr_engine
+        self.path_mokuro = get_path_mokuro(path_in, ocr_engine)
 
         if self.path_mokuro.is_file():
             self.mokuro_data = load_json(self.path_mokuro)
@@ -97,8 +98,11 @@ class Volume:
         return self.path_mokuro.parent
 
     def get_json_paths(self):
-        json_paths = natsorted(p.relative_to(self.path_ocr_cache) for p in self.path_ocr_cache.glob("**/*.json"))
-        json_paths = {p.with_suffix(""): p for p in json_paths}
+        # Use OCR engine-specific JSON suffix
+        json_pattern = "**/*.mo.json" if self.ocr_engine == "manga-ocr" else "**/*.gl.json"
+        json_paths = natsorted(p.relative_to(self.path_ocr_cache) for p in self.path_ocr_cache.glob(json_pattern))
+        # Remove the OCR-specific suffix to match with image files
+        json_paths = {p.with_suffix("").with_suffix(""): p for p in json_paths}
         return json_paths
 
     def get_img_paths(self):
@@ -128,9 +132,10 @@ class Volume:
 
 
 class VolumeCollection:
-    def __init__(self):
+    def __init__(self, ocr_engine="manga-ocr"):
         self.volumes = {}
         self.titles = {}
+        self.ocr_engine = ocr_engine
 
     def __len__(self):
         return len(self.volumes)
@@ -139,12 +144,12 @@ class VolumeCollection:
         return iter(natsorted(self.volumes.values(), key=lambda vtp: vtp.path_in))
 
     def add_path_in(self, path_in):
-        path_mokuro = get_path_mokuro(path_in)
+        path_mokuro = get_path_mokuro(path_in, self.ocr_engine)
         if path_mokuro in self.volumes:
             volume = self.volumes[path_mokuro]
             volume.paths_in.add(path_in)
         else:
-            volume = self.volumes[path_mokuro] = Volume(path_in)
+            volume = self.volumes[path_mokuro] = Volume(path_in, self.ocr_engine)
 
         if volume.path_title in self.titles:
             title = self.titles[volume.path_title]
@@ -154,8 +159,12 @@ class VolumeCollection:
         volume.title = title
 
 
-def get_path_mokuro(path_in):
+def get_path_mokuro(path_in, ocr_engine="manga-ocr"):
+    # Generate OCR engine suffix
+    ocr_suffix = ".mo" if ocr_engine == "manga-ocr" else ".gl"
+    
     if path_in.is_dir():
-        return path_in.parent / (path_in.name + ".mokuro")
+        return path_in.parent / (path_in.name + ocr_suffix + ".mokuro")
     if path_in.is_file() and path_in.suffix.lower() in {".zip", ".cbz"}:
-        return path_in.with_suffix(".mokuro")
+        # Remove the zip extension and add OCR suffix
+        return path_in.with_suffix(ocr_suffix + ".mokuro")

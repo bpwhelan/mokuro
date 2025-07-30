@@ -33,9 +33,12 @@ class MokuroGenerator:
     def process_volume(self, volume: Volume, ignore_errors=False, no_cache=False):
         volume.path_ocr_cache.mkdir(parents=True, exist_ok=True)
 
+        # Generate OCR engine suffix for JSON files
+        json_suffix = ".mo.json" if volume.ocr_engine == "manga-ocr" else ".gl.json"
+
         if volume.mokuro_data is not None:
             for page in volume.mokuro_data["pages"]:
-                json_path = (volume.path_ocr_cache / page["img_path"]).with_suffix(".json")
+                json_path = (volume.path_ocr_cache / page["img_path"]).with_suffix(json_suffix)
                 if json_path.is_file():
                     continue
                 json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,11 +50,16 @@ class MokuroGenerator:
 
         for img_path_rel in tqdm(img_paths.values(), desc="Processing pages..."):
             try:
-                json_path = (volume.path_ocr_cache / img_path_rel).with_suffix(".json")
+                json_path = (volume.path_ocr_cache / img_path_rel).with_suffix(json_suffix)
 
                 try:
-                    load_json(json_path)
-                    already_processed = True
+                    page_data = load_json(json_path)
+                    # Check if the JSON contains actual OCR results, not just stub data
+                    has_ocr_data = page_data.get("blocks", []) and any(
+                        block.get("lines", []) for block in page_data.get("blocks", [])
+                    )
+                    # If disable_ocr is True, we accept empty blocks as valid
+                    already_processed = has_ocr_data or self.disable_ocr
                 except (FileNotFoundError, JSONDecodeError, UnicodeDecodeError):
                     already_processed = False
 
