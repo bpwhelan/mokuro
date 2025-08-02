@@ -2,6 +2,8 @@ from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Sequence, Optional, Union
+import zipfile
+import shutil
 
 import fire
 from loguru import logger
@@ -9,7 +11,42 @@ from loguru import logger
 from mokuro import MokuroGenerator
 from mokuro import __version__
 from mokuro.legacy.overlay_generator import generate_legacy_html
-from mokuro.volume import VolumeCollection
+from mokuro.volume import VolumeCollection, get_path_mokuro
+
+
+def create_volume_zip(volume, ocr_engines):
+    """Create a zip archive containing the volume directory and all mokuro files."""
+    volume_dir = volume.path_in
+    if not volume_dir.is_dir():
+        logger.warning(f"Skipping zip creation for {volume_dir} - not a directory")
+        return
+    
+    # Determine zip file name based on volume directory name
+    zip_path = volume_dir.parent / f"{volume_dir.name}.zip"
+    
+    if zip_path.exists():
+        logger.info(f"Zip file already exists: {zip_path}")
+        return
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add all files from the volume directory
+            for file_path in volume_dir.rglob('*'):
+                if file_path.is_file():
+                    arcname = f"{volume_dir.name}/{file_path.relative_to(volume_dir)}"
+                    zip_file.write(file_path, arcname)
+            
+            # Add all mokuro files for each OCR engine
+            for ocr_engine in ocr_engines:
+                mokuro_path = get_path_mokuro(volume.path_in, ocr_engine)
+                if mokuro_path.exists():
+                    zip_file.write(mokuro_path, mokuro_path.name)
+                else:
+                    logger.warning(f"Mokuro file not found: {mokuro_path}")
+        
+        logger.info(f"Created zip archive: {zip_path}")
+    except Exception as e:
+        logger.error(f"Failed to create zip archive {zip_path}: {e}")
 
 
 def run(
@@ -27,6 +64,10 @@ def run(
     version: bool = False,
     lens: bool = False,
     manga_ocr: bool = False,
+    complete: bool = False,
+    zip: bool = False,
+    root_dir: bool = False,
+    everything: bool = False,
 ):
     """
     Process manga volumes with mokuro.
@@ -46,10 +87,74 @@ def run(
         version: Print the version of mokuro and exit.
         lens: Use Google Lens OCR engine instead of manga-ocr.
         manga_ocr: Use manga-ocr engine (default behavior, explicit flag for clarity).
+        complete: Process with all available OCR engines (currently manga-ocr and lens).
+        zip: Create a zip archive containing the chapter directory and all .mokuro files after processing.
+        root_dir: Process every series (directory) in the current directory by running --parent_dir on each one.
+        everything: Combines --root_dir, --complete, and --zip flags for comprehensive processing.
     """
 
     if version:
         print(f"{__version__}")
+        return
+
+    # Handle --everything flag
+    if everything:
+        root_dir = True
+        complete = True
+        zip = True
+        logger.info("Running with --everything: processing all series with all OCR engines and creating zip archives")
+
+    # Handle --root_dir flag
+    if root_dir:
+        if paths or parent_dir:
+            logger.error("Cannot use --root_dir with explicit paths or --parent_dir")
+            return
+        # Find all directories in current directory that could be manga series
+        current_dir = Path.cwd()
+        series_dirs = []
+        for item in current_dir.iterdir():
+            if item.is_dir() and not item.name.startswith('.') and item.name != '_ocr':
+                # Check if this directory contains manga volumes
+                has_volumes = False
+                for subitem in item.iterdir():
+                    if (subitem.is_dir() and subitem.name != '_ocr') or \
+                       (subitem.is_file() and subitem.suffix.lower() in {'.zip', '.cbz'}):
+                        has_volumes = True
+                        break
+                if has_volumes:
+                    series_dirs.append(item)
+        
+        if not series_dirs:
+            logger.error("No series directories found in current directory")
+            return
+        
+        logger.info(f"Found {len(series_dirs)} series to process: {[d.name for d in series_dirs]}")
+        
+        # Process each series directory
+        for series_dir in series_dirs:
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Processing series: {series_dir.name}")
+            logger.info(f"{'='*60}\n")
+            
+            # Recursively call run() with parent_dir set to the series directory
+            run(
+                parent_dir=series_dir,
+                pretrained_model_name_or_path=pretrained_model_name_or_path,
+                force_cpu=force_cpu,
+                disable_confirmation=disable_confirmation,
+                disable_ocr=disable_ocr,
+                ignore_errors=ignore_errors,
+                no_cache=no_cache,
+                unzip=unzip,
+                legacy_html=legacy_html,
+                as_one_file=as_one_file,
+                lens=lens,
+                manga_ocr=manga_ocr,
+                complete=complete,
+                zip=zip,
+                root_dir=False,  # Don't recurse
+                everything=False  # Don't recurse
+            )
         return
 
     if disable_ocr:
@@ -92,14 +197,20 @@ def run(
             ):
                 paths.append(p)
 
-    # Determine OCR engine first
-    if lens and manga_ocr:
-        logger.error("Cannot specify both --lens and --manga-ocr flags. Choose one or use default (manga-ocr).")
-        return
-    
-    ocr_engine = "lens" if lens else "manga-ocr"
+    # Determine OCR engines to use
+    if complete:
+        if lens or manga_ocr:
+            logger.warning("--complete flag overrides --lens and --manga-ocr flags. Processing with all engines.")
+        ocr_engines = ["manga-ocr", "lens"]
+        logger.info("Running complete OCR with all engines: manga-ocr and lens")
+    else:
+        if lens and manga_ocr:
+            logger.error("Cannot specify both --lens and --manga-ocr flags. Choose one or use default (manga-ocr).")
+            return
+        ocr_engines = ["lens" if lens else "manga-ocr"]
 
-    vc = VolumeCollection(ocr_engine=ocr_engine)
+    # Use the first engine for volume collection (to check processing status)
+    vc = VolumeCollection(ocr_engine=ocr_engines[0])
 
     for path_in in paths:
         vc.add_path_in(path_in)
@@ -126,18 +237,6 @@ def run(
         inp = input("\nContinue? [yes/no]")
         if inp.lower() not in ("y", "yes"):
             return
-    
-    if ocr_engine == "lens":
-        logger.info("Using Google Lens OCR engine")
-    else:
-        logger.info("Using manga-ocr engine")
-
-    mg = MokuroGenerator(
-        pretrained_model_name_or_path=pretrained_model_name_or_path,
-        force_cpu=force_cpu, 
-        disable_ocr=disable_ocr,
-        ocr_engine=ocr_engine
-    )
 
     with TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
@@ -148,21 +247,54 @@ def run(
             tmp_dir = None
 
         num_sucessful = 0
-        for i, volume in enumerate(vc):
-            logger.info(f"Processing {i + 1}/{len(vc)}: {volume.path_in}")
-
-            try:
-                volume.unzip(tmp_dir)
-                mg.process_volume(volume, ignore_errors=ignore_errors, no_cache=no_cache)
-                if legacy_html:
-                    generate_legacy_html(volume, as_one_file=as_one_file, ignore_errors=ignore_errors)
-
-            except Exception:
-                logger.exception(f"Error while processing {volume.path_in}")
+        
+        # Process with each OCR engine
+        for ocr_engine in ocr_engines:
+            if len(ocr_engines) > 1:
+                logger.info(f"\n{'='*60}")
+                logger.info(f"Processing with {ocr_engine} OCR engine")
+                logger.info(f"{'='*60}")
             else:
-                num_sucessful += 1
+                if ocr_engine == "lens":
+                    logger.info("Using Google Lens OCR engine")
+                else:
+                    logger.info("Using manga-ocr engine")
+            
+            # Update volume collection for current engine
+            vc.ocr_engine = ocr_engine
+            for volume in vc:
+                volume.ocr_engine = ocr_engine
+                volume.path_mokuro = get_path_mokuro(volume.path_in, ocr_engine)
+            
+            mg = MokuroGenerator(
+                pretrained_model_name_or_path=pretrained_model_name_or_path,
+                force_cpu=force_cpu, 
+                disable_ocr=disable_ocr,
+                ocr_engine=ocr_engine
+            )
+            
+            for i, volume in enumerate(vc):
+                logger.info(f"Processing {i + 1}/{len(vc)}: {volume.path_in}")
 
-        logger.info(f"Processed successfully: {num_sucessful}/{len(vc)}")
+                try:
+                    volume.unzip(tmp_dir)
+                    mg.process_volume(volume, ignore_errors=ignore_errors, no_cache=no_cache)
+                    if legacy_html and ocr_engine == ocr_engines[-1]:  # Only generate HTML for the last engine
+                        generate_legacy_html(volume, as_one_file=as_one_file, ignore_errors=ignore_errors)
+
+                except Exception:
+                    logger.exception(f"Error while processing {volume.path_in} with {ocr_engine}")
+                else:
+                    num_sucessful += 1
+
+        total_runs = len(vc) * len(ocr_engines)
+        logger.info(f"\nProcessed successfully: {num_sucessful}/{total_runs} ({len(ocr_engines)} engine(s) × {len(vc)} volume(s))")
+        
+        # Create zip archives if requested
+        if zip:
+            logger.info("\nCreating zip archives...")
+            for volume in vc:
+                create_volume_zip(volume, ocr_engines)
 
 
 if __name__ == "__main__":
