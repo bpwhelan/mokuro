@@ -39,7 +39,7 @@ class GoogleLensOCR:
             logger.error("Node.js not found. Please install Node.js to use Google Lens OCR")
             raise Exception("Node.js not installed")
     
-    def __call__(self, pil_image):
+    def __call__(self, pil_image, max_retries=3):
         """
         Process a PIL Image using Google Lens OCR
         Returns the extracted text as a string
@@ -49,38 +49,56 @@ class GoogleLensOCR:
             temp_path = temp_file.name
             pil_image.save(temp_path, 'PNG')
         
-        try:
-            # Call our Node.js wrapper
-            result = subprocess.run(['node', self.wrapper_path, temp_path], 
-                                    capture_output=True, text=True, check=True)
-            
-            # Parse the JSON output
+        last_error = None
+        for attempt in range(max_retries):
             try:
-                ocr_result = json.loads(result.stdout)
-                # Extract text from all segments
-                text_parts = []
-                if 'segments' in ocr_result:
-                    for segment in ocr_result['segments']:
-                        if 'text' in segment:
-                            text_parts.append(segment['text'])
+                # Call our Node.js wrapper
+                result = subprocess.run(['node', self.wrapper_path, temp_path], 
+                                        capture_output=True, text=True, check=True)
                 
-                # Add rate limiting delay for Google Lens OCR
-                time.sleep(0.5)
-                return ''.join(text_parts)
-            except json.JSONDecodeError:
-                # If JSON parsing fails, return the raw output
-                logger.warning("Failed to parse JSON from Google Lens OCR, using raw output")
-                # Add rate limiting delay even for failed JSON parsing (successful OCR call)
-                time.sleep(0.5)
-                return result.stdout.strip()
+                # Parse the JSON output
+                try:
+                    ocr_result = json.loads(result.stdout)
+                    # Extract text from all segments
+                    text_parts = []
+                    if 'segments' in ocr_result:
+                        for segment in ocr_result['segments']:
+                            if 'text' in segment:
+                                text_parts.append(segment['text'])
+                    
+                    # Add rate limiting delay for Google Lens OCR
+                    time.sleep(0.5)
+                    return ''.join(text_parts)
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, return the raw output
+                    logger.warning("Failed to parse JSON from Google Lens OCR, using raw output")
+                    # Add rate limiting delay even for failed JSON parsing (successful OCR call)
+                    time.sleep(0.5)
+                    return result.stdout.strip()
+                    
+            except subprocess.CalledProcessError as e:
+                last_error = e
+                error_msg = e.stderr if e.stderr else str(e)
                 
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Google Lens OCR failed: {e.stderr}")
-            return ""
-        finally:
-            # Clean up the temporary file
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
+                # Check if it's a transient error that should be retried
+                if any(code in error_msg for code in ['502', '503', '504', 'timeout', 'network']):
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) * 0.5  # Exponential backoff: 0.5, 1, 2 seconds
+                        logger.warning(f"Google Lens OCR failed with transient error (attempt {attempt + 1}/{max_retries}): {error_msg}")
+                        logger.info(f"Retrying in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                        continue
+                
+                logger.error(f"Google Lens OCR failed after {attempt + 1} attempts: {error_msg}")
+            finally:
+                # Only clean up the file after all retries or success
+                if attempt == max_retries - 1 or 'result' in locals():
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+        
+        # If we get here, all retries failed
+        if last_error:
+            raise RuntimeError(f"Google Lens OCR failed after {max_retries} attempts: {last_error.stderr}")
 
 
 class MangaPageOcr:
