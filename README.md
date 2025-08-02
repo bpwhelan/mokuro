@@ -103,6 +103,16 @@ If your path contains spaces, enclose it in double quotes, like this:
 mokuro "/path/to/manga/volume 1"
 ```
 
+## Supported Image Formats
+
+mokuro supports the following image formats:
+- **JPEG** (.jpg, .jpeg) - Standard manga format
+- **PNG** (.png) - Lossless format
+- **WebP** (.webp) - Modern web format
+- **AVIF** (.avif) - Advanced image format with excellent compression
+
+Note: AVIF requires Pillow 10.0.0 or later.
+
 ## Choose OCR Engine
 
 By default, mokuro uses manga-ocr. You can explicitly choose an OCR engine:
