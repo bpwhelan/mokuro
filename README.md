@@ -50,9 +50,8 @@ try installing Python from the [official site](https://www.python.org/downloads)
 If you want to run with GPU, install PyTorch as described [here](https://pytorch.org/get-started/locally/#start-locally),
 otherwise this step can be skipped.
 
-## Install Enhanced Dual OCR Version (Recommended)
-
-This enhanced version supports both manga-ocr and Google Lens OCR engines with separate file naming:
+## Install Enhanced Dual OCR Version 
+This version supports both manga-ocr and Google Lens OCR engines with separate file naming:
 
 ```bash
 
@@ -74,17 +73,7 @@ For the original manga-ocr only version:
 pip3 install mokuro
 ```
 
-**Note:** The PyPI version only supports manga-ocr. For dual OCR engine support (manga-ocr + Google Lens), use the enhanced installation above.
-
-## OCR Engine Features
-
-| Feature | manga-ocr (default) | Google Lens (`--lens`) |
-|---------|---------------------|------------------------|
-| **Speed** | ~1.7s/page | ~5.8s/page |
-| **Connectivity** | Offline | Online required |
-| **Languages** | Japanese-optimized | Multilingual |
-| **Setup** | Included | Requires Node.js |
-| **Accuracy** | Excellent for manga | Excellent for mixed content |
+**Note:** The PyPI version only supports manga-ocr. For dual OCR engine support (manga-ocr + Google Lens), use the installation above.
 
 # Usage
 
