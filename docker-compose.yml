@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  mokuro-api:
+    build: .
+    ports:
+      - "7331:7331"
+    environment:
+      - MOKURO_HOST=0.0.0.0
+      - MOKURO_PORT=7331
+      - MOKURO_DEBUG=false
+    volumes:
+      # Optional: mount a directory for persistent cache
+      - ./cache:/app/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7331/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
