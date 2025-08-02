@@ -57,8 +57,9 @@ This version supports both manga-ocr and Google Lens OCR engines with separate f
 
 # Clone with submodules (required for comic-text-detector)
 git clone --recurse-submodules https://github.com/xrishox/mokuro.git
+# conda install -c conda-forge nodejs=24
 cd mokuro
-pip install -r requirements.txt
+requirements-server.txt
 # Optional: Install Node.js dependencies for Google Lens OCR
 npm install chrome-lens-ocr
 # Install Python dependencies
