@@ -25,7 +25,7 @@ class InvalidImage(Exception):
 class GoogleLensOCR:
     def __init__(self):
         # Check if our Node.js wrapper exists
-        wrapper_path = os.path.join(os.path.dirname(__file__), '..', '..', 'lens_ocr_wrapper.js')
+        wrapper_path = os.path.join(os.path.dirname(__file__), '..', 'lens_ocr_wrapper.js')
         if not os.path.exists(wrapper_path):
             logger.error("lens_ocr_wrapper.js not found. Make sure Node.js wrapper is in the project root.")
             raise Exception("Google Lens OCR wrapper not found")
