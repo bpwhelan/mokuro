@@ -64,9 +64,6 @@ pip install -r requirements.txt
 npm install chrome-lens-ocr
 # Install Python dependencies
 pip install -e .
-
-# Optional: Install Node.js dependencies for Google Lens OCR
-npm install chrome-lens-ocr
 ```
 
 ## Install Original Version (PyPI)
