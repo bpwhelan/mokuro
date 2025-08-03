@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import time
 import os
+from typing import List
 from PIL import Image
 from loguru import logger
 from scipy.signal.windows import gaussian
@@ -14,6 +15,7 @@ from manga_ocr import MangaOcr
 from mokuro import __version__
 from mokuro.cache import cache
 from mokuro.utils import imread
+from mokuro.ocr_registry import BaseOCR, register_ocr_engine, OCRRegistry
 import torch
 
 
@@ -22,7 +24,8 @@ class InvalidImage(Exception):
         super().__init__(message)
 
 
-class GoogleLensOCR:
+@register_ocr_engine("lens", "Google Lens OCR with multilingual support (requires Node.js and chrome-lens-ocr)")
+class GoogleLensOCR(BaseOCR):
     def __init__(self):
         # Check if our Node.js wrapper exists
         wrapper_path = os.path.join(os.path.dirname(__file__), '..', 'lens_ocr_wrapper.js')
@@ -99,6 +102,79 @@ class GoogleLensOCR:
         # If we get here, all retries failed
         if last_error:
             raise RuntimeError(f"Google Lens OCR failed after {max_retries} attempts: {last_error.stderr}")
+    
+    @property
+    def is_available(self) -> bool:
+        """Check if Google Lens OCR is available."""
+        # Check if wrapper exists
+        if not os.path.exists(self.wrapper_path):
+            return False
+        
+        # Check if Node.js is available
+        try:
+            subprocess.run(['node', '--version'], capture_output=True, check=True)
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return False
+    
+    @property
+    def requirements(self) -> List[str]:
+        """List requirements for Google Lens OCR."""
+        return [
+            "Node.js",
+            "chrome-lens-ocr npm package (install with: npm install chrome-lens-ocr)",
+            "lens_ocr_wrapper.js in project root"
+        ]
+    
+    @property
+    def suggested_language_code(self) -> str:
+        """Google Lens uses 'gl' as its language code."""
+        return "gl"
+
+
+@register_ocr_engine("manga-ocr", "Fast offline OCR specialized for Japanese manga")
+class MangaOCREngine(BaseOCR):
+    """Wrapper for manga-ocr to integrate with the OCR registry."""
+    
+    def __init__(self, pretrained_model_name_or_path="kha-white/manga-ocr-base", force_cpu=False, **kwargs):
+        self.model = MangaOcr(pretrained_model_name_or_path, force_cpu)
+    
+    def __call__(self, image) -> str:
+        """Process image with manga-ocr. Accepts PIL Image, numpy array, or file path."""
+        # MangaOcr expects PIL Image
+        if isinstance(image, str):
+            # If it's a file path, load it
+            from PIL import Image as PILImage
+            image = PILImage.open(image)
+        elif isinstance(image, np.ndarray):
+            # If it's numpy array, convert to PIL
+            from PIL import Image as PILImage
+            image = PILImage.fromarray(image)
+        
+        return self.model(image)
+    
+    @property
+    def is_available(self) -> bool:
+        """manga-ocr is always available once installed."""
+        try:
+            import manga_ocr
+            return True
+        except ImportError:
+            return False
+    
+    @property
+    def requirements(self) -> List[str]:
+        """List requirements for manga-ocr."""
+        return [
+            "manga-ocr Python package",
+            "PyTorch",
+            "Transformers library"
+        ]
+    
+    @property
+    def suggested_language_code(self) -> str:
+        """manga-ocr uses 'mo' as its language code."""
+        return "mo"
 
 
 class MangaPageOcr:
@@ -129,12 +205,26 @@ class MangaPageOcr:
                 model_path=cache.comic_text_detector, input_size=detector_input_size, device=device, act="leaky"
             )
             
-            if self.ocr_engine == "lens":
-                logger.info("Initializing Google Lens OCR")
-                self.ocr_model = GoogleLensOCR()
-            else:  # Default to manga-ocr
-                logger.info("Initializing Manga OCR")
-                self.ocr_model = MangaOcr(pretrained_model_name_or_path, force_cpu)
+            # Use the OCR registry to get the engine
+            logger.info(f"Initializing {self.ocr_engine} OCR engine")
+            
+            # Get engine-specific kwargs
+            if self.ocr_engine == "manga-ocr":
+                engine_kwargs = {
+                    "pretrained_model_name_or_path": pretrained_model_name_or_path,
+                    "force_cpu": force_cpu
+                }
+            else:
+                engine_kwargs = {}
+            
+            self.ocr_model = OCRRegistry.get_engine_instance(self.ocr_engine, **engine_kwargs)
+            
+            if self.ocr_model is None:
+                available = OCRRegistry.get_available_engines()
+                raise ValueError(
+                    f"OCR engine '{self.ocr_engine}' not found or unavailable. "
+                    f"Available engines: {', '.join(available)}"
+                )
 
     def __call__(self, img_path):
         img = imread(img_path)

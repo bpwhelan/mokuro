@@ -6,12 +6,24 @@ A REST API server that exposes mokuro's manga/comic OCR capabilities as a web se
 
 - **Single Image Processing**: Process individual manga/comic pages
 - **Batch Processing**: Process multiple images in one request
-- **Dual OCR Engine Support**: 
+- **Dynamic OCR Engine Support**: Automatically discovers available OCR engines
   - `manga-ocr` (default) - Fast, offline, specialized for Japanese manga
   - `lens` - Google Lens OCR with multilingual support
+  - Additional engines can be added without API changes
+- **Engine Discovery**: Query available engines and their capabilities
 - **Detailed OCR Results**: Returns text content with precise positioning data
 - **CORS Enabled**: Can be called from web applications
 - **Simple REST API**: Easy to integrate with any programming language
+
+## Supported Image Formats
+
+The server supports the following image formats:
+- **PNG** (.png)
+- **JPEG** (.jpg, .jpeg)
+- **WebP** (.webp)
+- **AVIF** (.avif) - Requires Pillow 10.0.0+
+- **BMP** (.bmp)
+- **TIFF** (.tiff)
 
 ## Installation
 
@@ -49,13 +61,55 @@ python mokuro_server.py
 ```
 GET /health
 ```
-Returns server status and available OCR engines.
+Returns server status and dynamically discovered OCR engines.
+
+**Response Example:**
+```json
+{
+  "status": "healthy",
+  "version": "0.2.1",
+  "available_engines": ["manga-ocr", "lens"]
+}
+```
 
 #### API Info
 ```
 GET /api/info
 ```
-Returns detailed API documentation and capabilities.
+Returns detailed API documentation, capabilities, and comprehensive OCR engine information.
+
+**Response includes:**
+- API endpoints and parameters
+- Supported file formats
+- Available OCR engines with descriptions
+- Engine availability status and requirements
+
+**Response Example:**
+```json
+{
+  "name": "Mokuro API Server",
+  "version": "0.2.1",
+  "endpoints": { ... },
+  "ocr_engines": {
+    "manga-ocr": "Fast offline OCR specialized for Japanese manga",
+    "lens": "Google Lens OCR with multilingual support"
+  },
+  "ocr_engines_detailed": {
+    "manga-ocr": {
+      "description": "Fast offline OCR specialized for Japanese manga",
+      "available": true,
+      "requirements": ["manga-ocr Python package", "PyTorch", "Transformers library"],
+      "suggested_language_code": "mo"
+    },
+    "lens": {
+      "description": "Google Lens OCR with multilingual support",
+      "available": true,
+      "requirements": ["Node.js", "chrome-lens-ocr npm package", "lens_ocr_wrapper.js"],
+      "suggested_language_code": "gl"
+    }
+  }
+}
+```
 
 #### Process Single Image
 ```
@@ -146,6 +200,49 @@ See `examples/api_client_example.py` for a complete example of how to use the AP
 ```bash
 python examples/api_client_example.py path/to/manga_page.jpg
 ```
+
+## Adding Custom OCR Engines
+
+The server now supports dynamic OCR engine discovery. To add a new OCR engine:
+
+1. **Create your OCR engine class:**
+```python
+# my_ocr_engine.py
+from mokuro.ocr_registry import BaseOCR, register_ocr_engine
+
+@register_ocr_engine("my-engine", "My custom OCR engine with special features")
+class MyOCREngine(BaseOCR):
+    def __init__(self, model_path=None, **kwargs):
+        # Initialize your OCR model
+        self.model = load_my_model(model_path)
+    
+    def __call__(self, image) -> str:
+        # Process image (PIL Image, numpy array, or file path)
+        return self.model.recognize(image)
+    
+    @property
+    def is_available(self) -> bool:
+        # Check if engine can be used
+        try:
+            import my_ocr_library
+            return True
+        except ImportError:
+            return False
+    
+    @property
+    def requirements(self) -> List[str]:
+        return ["my-ocr-library>=1.0.0", "Additional requirements"]
+```
+
+2. **Import your module** - Add to mokuro's `__init__.py` or import in the server:
+```python
+import my_ocr_engine  # This registers the engine automatically
+```
+
+3. **That's it!** Your engine now:
+   - Appears in `/health` and `/api/info` responses
+   - Can be used by specifying `ocr_engine=my-engine`
+   - Is validated automatically in API requests
 
 ### Docker Deployment
 

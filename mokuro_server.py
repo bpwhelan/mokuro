@@ -22,6 +22,7 @@ from mokuro import MokuroGenerator
 from mokuro.manga_page_ocr import MangaPageOcr
 from mokuro.utils import load_json
 from mokuro import __version__ as mokuro_version
+from mokuro.ocr_registry import OCRRegistry
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -44,7 +45,7 @@ app.json.default = lambda obj: int(obj) if isinstance(obj, np.integer) else floa
 
 # Configuration
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'avif', 'bmp', 'tiff'}
 TEMP_DIR = Path(tempfile.gettempdir()) / "mokuro_api"
 TEMP_DIR.mkdir(exist_ok=True)
 
@@ -86,7 +87,7 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'version': mokuro_version,
-        'available_engines': ['manga-ocr', 'lens']
+        'available_engines': OCRRegistry.get_available_engines()
     })
 
 
@@ -117,8 +118,11 @@ def process_image():
         
         # Get parameters
         ocr_engine = request.form.get('ocr_engine', 'manga-ocr')
-        if ocr_engine not in ['manga-ocr', 'lens']:
-            return jsonify({'error': 'Invalid OCR engine. Must be "manga-ocr" or "lens"'}), 400
+        available_engines = OCRRegistry.get_available_engines()
+        if ocr_engine not in available_engines:
+            return jsonify({
+                'error': f'Invalid OCR engine. Available engines: {", ".join(available_engines)}'
+            }), 400
         
         force_cpu = request.form.get('force_cpu', 'false').lower() == 'true'
         
@@ -172,8 +176,11 @@ def process_batch():
         
         # Get parameters
         ocr_engine = request.form.get('ocr_engine', 'manga-ocr')
-        if ocr_engine not in ['manga-ocr', 'lens']:
-            return jsonify({'error': 'Invalid OCR engine. Must be "manga-ocr" or "lens"'}), 400
+        available_engines = OCRRegistry.get_available_engines()
+        if ocr_engine not in available_engines:
+            return jsonify({
+                'error': f'Invalid OCR engine. Available engines: {", ".join(available_engines)}'
+            }), 400
         
         force_cpu = request.form.get('force_cpu', 'false').lower() == 'true'
         
@@ -252,9 +259,10 @@ def api_info():
         'supported_formats': list(ALLOWED_EXTENSIONS),
         'max_file_size': f"{MAX_FILE_SIZE // (1024*1024)}MB",
         'ocr_engines': {
-            'manga-ocr': 'Fast offline OCR specialized for Japanese manga',
-            'lens': 'Google Lens OCR with multilingual support'
-        }
+            name: info['description'] 
+            for name, info in OCRRegistry.list_engines().items()
+        },
+        'ocr_engines_detailed': OCRRegistry.list_engines()
     })
 
 
@@ -289,25 +297,22 @@ if __name__ == '__main__':
     # Preload models to avoid cold start on first request
     if preload_models:
         print("\nPreloading OCR models...")
-        try:
-            # Preload manga-ocr model
-            print("  Loading manga-ocr model...")
-            manga_ocr = get_ocr_instance("manga-ocr", force_cpu=False)
-            print("  ✓ manga-ocr model loaded successfully")
-            
-            # Optionally preload lens OCR if available
-            if Path("lens_ocr_wrapper.js").exists():
-                print("  Loading Google Lens OCR...")
-                lens_ocr = get_ocr_instance("lens", force_cpu=False)
-                print("  ✓ Google Lens OCR loaded successfully")
-            else:
-                print("  ℹ Google Lens OCR not available (lens_ocr_wrapper.js not found)")
-                
-            print("\n✓ All models preloaded and ready!")
-            print("  First request will be fast!\n")
-        except Exception as e:
-            print(f"\n⚠ Warning: Failed to preload models: {e}")
-            print("  Models will be loaded on first request instead.\n")
+        available_engines = OCRRegistry.get_available_engines()
+        engine_info = OCRRegistry.list_engines()
+        
+        print(f"  Found {len(available_engines)} available OCR engine(s):\n")
+        
+        for engine_name in available_engines:
+            try:
+                print(f"  Loading {engine_name} model...")
+                engine_instance = get_ocr_instance(engine_name, force_cpu=False)
+                info = engine_info.get(engine_name, {})
+                print(f"  ✓ {engine_name} loaded successfully - {info.get('description', 'No description')}")
+            except Exception as e:
+                print(f"  ⚠ Warning: Failed to preload {engine_name}: {e}")
+        
+        print("\n✓ Model preloading complete!")
+        print("  First request will be fast!\n")
     else:
         print("\nModel preloading disabled. Models will be loaded on first request.")
         print("To enable preloading, set MOKURO_PRELOAD_MODELS=true\n")
