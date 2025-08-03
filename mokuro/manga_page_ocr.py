@@ -18,10 +18,149 @@ from mokuro.utils import imread
 from mokuro.ocr_registry import BaseOCR, register_ocr_engine, OCRRegistry
 import torch
 
+# Apple Vision imports (macOS only)
+try:
+    import platform
+    if platform.system() == 'Darwin':  # macOS only
+        from Foundation import NSURL, NSData
+        from Vision import VNRecognizeTextRequest, VNImageRequestHandler
+        from Quartz import CGImageSourceCreateWithData, CGImageSourceCreateImageAtIndex
+        APPLE_VISION_AVAILABLE = True
+    else:
+        APPLE_VISION_AVAILABLE = False
+except ImportError:
+    APPLE_VISION_AVAILABLE = False
+
 
 class InvalidImage(Exception):
     def __init__(self, message="Animation file, Corrupted file or Unsupported type"):
         super().__init__(message)
+
+
+@register_ocr_engine("apple-vision", "Apple Vision OCR with native macOS text recognition (macOS only)")
+class AppleVisionOCR(BaseOCR):
+    """Apple Vision OCR engine using the latest Vision framework APIs."""
+    
+    def __init__(self, **kwargs):
+        # Apple Vision OCR doesn't use force_cpu (it uses Apple's Metal/Neural Engine automatically)
+        # But we accept it for compatibility with the registry system
+        if not APPLE_VISION_AVAILABLE:
+            raise Exception("Apple Vision OCR is only available on macOS with PyObjC Vision framework")
+        
+        # Test Vision framework availability
+        try:
+            # Create a test request to ensure Vision framework is accessible
+            request = VNRecognizeTextRequest.alloc().init()
+            request.setRecognitionLevel_(1)  # VNRequestTextRecognitionLevelAccurate
+            request.setAutomaticallyDetectsLanguage_(True)
+            request.setUsesLanguageCorrection_(True)
+            logger.info("Apple Vision OCR engine initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Apple Vision OCR: {e}")
+            raise Exception(f"Apple Vision framework not available: {e}")
+    
+    def __call__(self, image) -> str:
+        """Process image with Apple Vision OCR. Accepts PIL Image, numpy array, or file path."""
+        try:
+            # Convert input to PIL Image if needed
+            if isinstance(image, str):
+                # If it's a file path, load it
+                from PIL import Image as PILImage
+                pil_image = PILImage.open(image)
+            elif isinstance(image, np.ndarray):
+                # If it's numpy array, convert to PIL
+                from PIL import Image as PILImage
+                pil_image = PILImage.fromarray(image)
+            else:
+                # Assume it's already a PIL Image
+                pil_image = image
+            
+            # Convert PIL image to NSData
+            import io
+            img_buffer = io.BytesIO()
+            pil_image.save(img_buffer, format='PNG')
+            img_data = img_buffer.getvalue()
+            
+            # Create NSData from image bytes
+            ns_data = NSData.dataWithBytes_length_(img_data, len(img_data))
+            
+            # Create image source and CGImage
+            image_source = CGImageSourceCreateWithData(ns_data, None)
+            if not image_source:
+                raise Exception("Failed to create image source from image data")
+            
+            cg_image = CGImageSourceCreateImageAtIndex(image_source, 0, None)
+            if not cg_image:
+                raise Exception("Failed to create CGImage from image source")
+            
+            # Create VNImageRequestHandler
+            request_handler = VNImageRequestHandler.alloc().initWithCGImage_options_(cg_image, {})
+            
+            # Create and configure text recognition request
+            request = VNRecognizeTextRequest.alloc().init()
+            request.setRecognitionLevel_(1)  # VNRequestTextRecognitionLevelAccurate
+            request.setAutomaticallyDetectsLanguage_(True)
+            request.setUsesLanguageCorrection_(True)
+            
+            # Set supported languages for manga/Japanese text
+            supported_languages = request.supportedRecognitionLanguagesAndReturnError_(None)[0]
+            if supported_languages:
+                # Prioritize Japanese and English for manga
+                preferred_languages = []
+                for lang in ['ja-JP', 'en-US', 'en']:
+                    if lang in supported_languages:
+                        preferred_languages.append(lang)
+                if preferred_languages:
+                    request.setRecognitionLanguages_(preferred_languages)
+            
+            # Perform OCR
+            success = request_handler.performRequests_error_([request], None)[0]
+            if not success:
+                raise Exception("Vision text recognition request failed")
+            
+            # Extract text from results
+            results = request.results()
+            if not results:
+                return ""  # No text found
+            
+            # Combine all recognized text
+            recognized_text = []
+            for observation in results:
+                # Get the top candidate for each text observation
+                candidates = observation.topCandidates_(1)
+                if candidates and len(candidates) > 0:
+                    text = candidates[0].string()
+                    if text:
+                        recognized_text.append(text)
+            
+            # Join all text with spaces
+            full_text = " ".join(recognized_text)
+            
+            logger.debug(f"Apple Vision OCR extracted text: '{full_text[:100]}{'...' if len(full_text) > 100 else ''}'")
+            return full_text
+            
+        except Exception as e:
+            logger.error(f"Apple Vision OCR failed: {e}")
+            raise Exception(f"Apple Vision OCR processing failed: {e}")
+    
+    @property
+    def is_available(self) -> bool:
+        """Check if Apple Vision OCR is available."""
+        return APPLE_VISION_AVAILABLE
+    
+    @property
+    def requirements(self) -> List[str]:
+        """List requirements for Apple Vision OCR."""
+        return [
+            "macOS 10.15+ (Catalina or later)",
+            "PyObjC Vision framework",
+            "Apple Vision framework (built into macOS)"
+        ]
+    
+    @property
+    def suggested_language_code(self) -> str:
+        """Apple Vision uses 'av' as its language code."""
+        return "av"
 
 
 @register_ocr_engine("lens", "Google Lens OCR with multilingual support (requires Node.js and chrome-lens-ocr)")
@@ -198,8 +337,13 @@ class MangaPageOcr:
         self.ocr_engine = ocr_engine
 
         if not self.disable_ocr:
-            cuda = torch.cuda.is_available()
-            device = "cuda" if cuda and not force_cpu else "cpu"
+            # Check for available hardware acceleration in order of preference
+            if torch.backends.mps.is_available() and not force_cpu:
+                device = "mps"
+            elif torch.cuda.is_available() and not force_cpu:
+                device = "cuda"
+            else:
+                device = "cpu"
             logger.info(f"Initializing text detector, using device {device}")
             self.text_detector = TextDetector(
                 model_path=cache.comic_text_detector, input_size=detector_input_size, device=device, act="leaky"
