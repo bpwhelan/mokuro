@@ -1,0 +1,113 @@
+# Git files
+.git
+.gitignore
+.gitmodules
+
+# Python cache
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test files
+tests/
+test_*.py
+*_test.py
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Notebooks
+notebooks/
+*.ipynb
+.ipynb_checkpoints/
+
+# Output directories
+output/
+results/
+_ocr/
+*.html
+*.mokuro
+
+# Cache directories (we'll create fresh ones in container)
+cache/
+.cache/
+
+# Node modules (will be installed fresh)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# Docker files (avoid recursion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Large model files (will be downloaded during build)
+*.pt
+*.pth
+*.onnx
+*.bin
+*.safetensors
+
+# Image samples (keep the repo clean)
+examples/
+sample_images/
+test_images/
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+
+# OS files
+Thumbs.db
+.Trash-*
+.nfs*
