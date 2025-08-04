@@ -1,3 +1,4 @@
-[submodule "manga_ocr_overlay/comic-text-detector"]
-        path = comic_text_detector
-        url = https://github.com/dmMaze/comic-text-detector.git
+# Submodules will be added here
+[submodule "comic_text_detector"]
+	path = comic_text_detector
+	url = https://github.com/dmMaze/comic-text-detector.git
