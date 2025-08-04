@@ -261,8 +261,13 @@ def api_info():
         'ocr_engines': {
             name: info['description'] 
             for name, info in OCRRegistry.list_engines().items()
+            if info.get('available', False)
         },
-        'ocr_engines_detailed': OCRRegistry.list_engines()
+        'ocr_engines_detailed': {
+            name: info
+            for name, info in OCRRegistry.list_engines().items()
+            if info.get('available', False)
+        }
     })
 
 

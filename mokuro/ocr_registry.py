@@ -184,14 +184,28 @@ class OCRRegistry:
                     "suggested_language_code": cached_instance.suggested_language_code
                 }
             else:
-                # For engines without cached instances, provide minimal info
-                # WITHOUT creating a new instance!
-                engines[name] = {
-                    "description": description,
-                    "available": True,  # Assume available until proven otherwise
-                    "requirements": ["Not yet initialized"],
-                    "suggested_language_code": name[:2]
-                }
+                # Try to instantiate the engine to check availability
+                # This is done with minimal parameters just to check if it's available
+                try:
+                    test_instance = engine_class()
+                    engines[name] = {
+                        "description": description,
+                        "available": test_instance.is_available,
+                        "requirements": test_instance.requirements,
+                        "suggested_language_code": test_instance.suggested_language_code
+                    }
+                    # Cache this instance for future use
+                    cache_key = f"{name}:"
+                    cls._instances[cache_key] = test_instance
+                except Exception as e:
+                    # Engine failed to instantiate or is not available
+                    logger.debug(f"Engine '{name}' not available: {e}")
+                    engines[name] = {
+                        "description": description,
+                        "available": False,
+                        "requirements": [f"Not available: {str(e)}"],
+                        "suggested_language_code": name[:2]
+                    }
         
         return engines
     
@@ -199,15 +213,9 @@ class OCRRegistry:
     def get_available_engines(cls) -> List[str]:
         """Get a list of available (ready to use) OCR engine names."""
         available = []
-        for name in cls._engines:
-            # Check if we have a cached instance
-            has_cached = any(cache_key.startswith(f"{name}:") for cache_key in cls._instances)
-            if has_cached:
-                # If we have a cached instance, it's available
-                available.append(name)
-            else:
-                # For uncached engines, assume they're available
-                # They'll be initialized on first use
+        engines_info = cls.list_engines()
+        for name, info in engines_info.items():
+            if info.get("available", False):
                 available.append(name)
         return available
     
