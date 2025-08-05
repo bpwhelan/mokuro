@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const Lens = require('chrome-lens-ocr').default || require('chrome-lens-ocr');
-const fs = require('fs');
+import Lens from 'chrome-lens-ocr';
+import fs from 'fs';
 
 if (process.argv.length < 3) {
     console.error('Usage: node lens_ocr_wrapper.js <image_path>');
