@@ -2,20 +2,30 @@ version: '3.8'
 
 services:
   mokuro-api:
-    build: .
+    # Use pre-built image from GHCR
+    image: ghcr.io/xrishox/mokuro:latest
+    # Or build locally:
+    # build: .
+    container_name: mokuro-server
     ports:
       - "7331:7331"
     environment:
       - MOKURO_HOST=0.0.0.0
       - MOKURO_PORT=7331
       - MOKURO_DEBUG=false
+      - MOKURO_PRELOAD_MODELS=true
     volumes:
       # Optional: mount a directory for persistent cache
       - ./cache:/app/cache
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7331/health"]
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:7331/health').raise_for_status()"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    
+    # Uncomment for GPU support:
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
