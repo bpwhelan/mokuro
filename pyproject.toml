@@ -60,6 +60,11 @@ images = [
     "pillow-heif>=0.16.0",
     "pillow-jxl-plugin>=0.3.2",
 ]
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]",
+    "python-multipart",
+]
 
 [project.urls]
 Homepage = "https://github.com/kha-white/mokuro"
@@ -84,3 +89,4 @@ extend-exclude = ["comic_text_detector", "notebooks"]
 
 [project.scripts]
 mokuro = "mokuro.__main__:main"
+mokuro-api = "mokuro.api_server.server:main"
