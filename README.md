@@ -95,6 +95,8 @@ mokuro --parent_dir manga_title/
 ```
 --pretrained_model_name_or_path: Name or path of the manga-ocr model.
 --force_cpu: Force the use of CPU even if CUDA is available.
+--ocr_engine: OCR backend to use. Default 'manga_ocr'. To use owocr providers, set to 'owocr:<provider>' (e.g. 'owocr:easyocr', 'owocr:rapidocr', 'owocr:mangaocr', 'owocr:gvision', 'owocr:glens', 'owocr:glensweb', 'owocr:bing', 'owocr:azure', 'owocr:ocrspace', 'owocr:avision', 'owocr:alivetext', 'owocr:winrtocr', 'owocr:oneocr'). You can also use 'owocr:auto' to pick the best available for your OS.
+--owocr_config: Optional path to a JSON file containing provider-specific configuration (e.g., Azure endpoint/api_key, OneOCR/WinRT server URL on non-Windows). Keys should match provider names (e.g., {"azure": {"endpoint": "...", "api_key": "..."}}).
 --disable_confirmation: Disable confirmation prompt. If False, the user will be prompted to confirm the list of volumes to be processed.
 --disable_ocr: Disable OCR processing. Generate mokuro/HTML files without OCR results.
 --ignore_errors: Continue processing volumes even if an error occurs.
@@ -104,6 +106,23 @@ mokuro --parent_dir manga_title/
 --as_one_file: Applies only to legacy HTML. If False, generate separate CSS and JS files instead of embedding them in the HTML file.
 --version: Print the version of mokuro and exit.
 ```
+
+To enable additional engines via owocr, install the packages as needed, for example:
+- `pip install owocr[mangaocr]` for Manga OCR via owocr
+- `pip install owocr[easyocr]` for EasyOCR
+- `pip install owocr[rapidocr]` for RapidOCR (downloads an ONNX model on first run)
+- `pip install owocr[gvision]` for Google Vision (requires `~/.config/google_vision.json`)
+- `pip install owocr[azure]` for Azure Image Analysis (requires `--owocr_config` with endpoint/api_key)
+- `pip install owocr[lens]` for Google Lens (betterproto)
+- `pip install owocr[lensweb]` for Google Lens (web)
+- `pip install owocr[winocr]` for WinRT OCR (Windows only)
+  - `pip install oneocr` for OneOCR (Windows only; see OneOCR README for system files)
+
+Then run with `--ocr-engine owocr:easyocr` (or another provider). On macOS you can use `owocr:avision` or `owocr:alivetext`; on Windows `owocr:winrtocr` or `owocr:oneocr`.
+
+Convenience: you can also install owocr (with all supported engines) alongside mokuro via extras:
+- `pip install "mokuro[owocr]"`
+  - Installs owocr plus all provider engine extras (EasyOCR, RapidOCR, Lens/LensWeb, Google Vision, Azure, WinRT OCR on Windows, and OneOCR on Windows). On macOS, Apple Vision/Live Text support comes via pyobjc from owocr’s base install. Some providers still require credentials or OS features.
 
 ## Legacy HTML vs. new .mokuro format
 
@@ -126,3 +145,12 @@ For any inquiries, please feel free to contact me at kha-white@mail.com
 
 - https://github.com/dmMaze/comic-text-detector
 - https://github.com/juvian/Manga-Text-Segmentation
+Cache and language codes
+- For non-native engines, per-page cache JSONs are written under `./_ocr/<VolumeName>.<code>/...` where `<code>` identifies the engine.
+- The per-page JSONs include `lang_code`, and the top-level `.mokuro` file also includes `lang_code`.
+- Codes:
+  - gl: Google Lens, gw: Google Lens (web), gv: Google Vision, az: Azure
+  - eo: EasyOCR, ro: RapidOCR, mo: MangaOCR via owocr (native manga-ocr has no code)
+  - bo: Bing, os: OCRSpace
+  - av: Apple Vision, al: Apple Live Text
+  - wo: WinRT OCR, oo: OneOCR

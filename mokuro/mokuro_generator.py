@@ -18,6 +18,54 @@ class MokuroGenerator:
         self.disable_ocr = disable_ocr
         self.kwargs = kwargs
         self.mpocr = None
+        self.ocr_engine = kwargs.get("ocr_engine", "manga_ocr")
+
+    @staticmethod
+    def _engine_code_from_arg(ocr_engine: str | None):
+        if not ocr_engine:
+            return None
+        e = ocr_engine.lower()
+        if e in ("manga_ocr", "mocr", "manga-ocr"):
+            return None  # native manga-ocr has no code
+        if not e.startswith("owocr:"):
+            return None
+        p = e.split(":", 1)[1].strip().lower()
+        mapping = {
+            "mangaocr": "mo",
+            "mocr": "mo",
+            "manga-ocr": "mo",
+            "easyocr": "eo",
+            "easy": "eo",
+            "rapidocr": "ro",
+            "rapid": "ro",
+            "gvision": "gv",
+            "googlevision": "gv",
+            "google_vision": "gv",
+            "glens": "gl",
+            "googlelens": "gl",
+            "lens": "gl",
+            "glensweb": "gw",
+            "lensweb": "gw",
+            "googlelensweb": "gw",
+            "bing": "bo",
+            "azure": "az",
+            "azureimageanalysis": "az",
+            "azure_image_analysis": "az",
+            "ocrspace": "os",
+            "ocr_space": "os",
+            "avision": "av",
+            "applevision": "av",
+            "apple_vision": "av",
+            "alivetext": "al",
+            "applelivetext": "al",
+            "apple_live_text": "al",
+            "winrtocr": "wo",
+            "winrt": "wo",
+            "winrt_ocr": "wo",
+            "oneocr": "oo",
+            "one_ocr": "oo",
+        }
+        return mapping.get(p)
 
     def init_models(self):
         if self.mpocr is None:
@@ -29,11 +77,19 @@ class MokuroGenerator:
             )
 
     def process_volume(self, volume: Volume, ignore_errors=False, no_cache=False):
-        volume.path_ocr_cache.mkdir(parents=True, exist_ok=True)
+        # decide engine-specific cache directory
+        code = self._engine_code_from_arg(self.ocr_engine)
+        base_cache_dir = volume.path_ocr_cache
+        if code:
+            cache_dir = base_cache_dir.parent / (base_cache_dir.name + f".{code}")
+        else:
+            cache_dir = base_cache_dir
+
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
         if volume.mokuro_data is not None:
             for page in volume.mokuro_data["pages"]:
-                json_path = (volume.path_ocr_cache / page["img_path"]).with_suffix(".json")
+                json_path = (cache_dir / page["img_path"]).with_suffix(".json")
                 if json_path.is_file():
                     continue
                 json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,7 +101,7 @@ class MokuroGenerator:
 
         for img_path_rel in tqdm(img_paths.values(), desc="Processing pages..."):
             try:
-                json_path = (volume.path_ocr_cache / img_path_rel).with_suffix(".json")
+                json_path = (cache_dir / img_path_rel).with_suffix(".json")
 
                 try:
                     load_json(json_path)
@@ -64,11 +120,14 @@ class MokuroGenerator:
                 else:
                     raise e
 
-        self.generate_mokuro_file(volume, ignore_errors=ignore_errors)
+        self.generate_mokuro_file(volume, cache_dir=cache_dir, lang_code=code, ignore_errors=ignore_errors)
 
     @staticmethod
-    def generate_mokuro_file(volume: Volume, ignore_errors=False):
-        json_paths = volume.get_json_paths()
+    def generate_mokuro_file(volume: Volume, cache_dir, lang_code=None, ignore_errors=False):
+        # gather jsons from the selected cache dir
+        from natsort import natsorted
+        json_paths = natsorted(p.relative_to(cache_dir) for p in cache_dir.glob("**/*.json"))
+        json_paths = {p.with_suffix(""): p for p in json_paths}
         img_paths = volume.get_img_paths()
 
         out = {
@@ -79,11 +138,13 @@ class MokuroGenerator:
             "volume_uuid": volume.uuid,
             "pages": [],
         }
+        if lang_code:
+            out["lang_code"] = lang_code
 
         for key, json_path_rel in json_paths.items():
             try:
                 img_path_rel = img_paths[key]
-                page_json = load_json(volume.path_ocr_cache / json_path_rel)
+                page_json = load_json(cache_dir / json_path_rel)
                 page_json["img_path"] = str(img_path_rel).replace("\\", "/")
                 out["pages"].append(page_json)
             except Exception as e:
@@ -92,4 +153,10 @@ class MokuroGenerator:
                 else:
                     raise e
 
-        dump_json(out, volume.path_mokuro)
+        # choose output path; include lang code if provided (native manga-ocr has no code)
+        if lang_code:
+            out_name = f"{volume.path_in.name}.{lang_code}.mokuro"
+        else:
+            out_name = f"{volume.path_in.name}.mokuro"
+        out_path = volume.path_title / out_name
+        dump_json(out, out_path)

@@ -38,6 +38,21 @@ dev = [
     "pytest",
     "ruff",
 ]
+owocr = [
+    # Base owocr package (includes OS-marked deps like pyobjc on macOS)
+    "owocr>=1.14.7",
+    # Enable all provider engines via owocr extras
+    "owocr[mangaocr]>=1.14.7",
+    "owocr[easyocr]>=1.14.7",
+    "owocr[rapidocr]>=1.14.7",
+    "owocr[lens]>=1.14.7",
+    "owocr[lensweb]>=1.14.7",
+    "owocr[gvision]>=1.14.7",
+    "owocr[azure]>=1.14.7",
+    # Windows-specific engines
+    "owocr[winocr]>=1.14.7; platform_system == 'Windows'",
+    "oneocr>=1.0.9; platform_system == 'Windows'",
+]
 
 [project.urls]
 Homepage = "https://github.com/kha-white/mokuro"
