@@ -5,6 +5,28 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image
+
+try:
+    # Optional plugins to add AVIF/HEIF support if installed
+    from pillow_heif import register_heif_opener as _register_heif
+
+    _register_heif()
+except Exception:
+    pass
+
+_jxl_registered = False
+for _mod in (
+    "pillow_jxl",  # some dists expose this name
+    "pillow_jxl_plugin",  # others use this
+    "PIL.JpegXLImagePlugin",  # plugin module inside PIL namespace
+):
+    try:
+        __import__(_mod)
+        _jxl_registered = True
+        break
+    except Exception:
+        continue
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -27,8 +49,38 @@ def dump_json(obj, path):
 
 
 def imread(path, flags=cv2.IMREAD_COLOR):
-    """cv2.imread, but works with unicode paths"""
-    return cv2.imdecode(np.fromfile(path, dtype=np.uint8), flags)
+    """Read image from path.
+
+    Strategy:
+    - Try Pillow first (supports AVIF/JXL when plugins are installed). Reject animated images.
+    - Convert to NumPy BGR to match OpenCV expectations.
+    - Fallback to OpenCV imdecode (also handles unicode paths via fromfile).
+    """
+    # Try Pillow path
+    try:
+        img = Image.open(str(path))
+        # Reject animated images
+        n_frames = getattr(img, "n_frames", 1)
+        if n_frames and n_frames > 1:
+            return None
+        if flags == cv2.IMREAD_GRAYSCALE:
+            img = img.convert("L")
+            arr = np.array(img)
+            return arr
+        else:
+            img = img.convert("RGB")
+            arr = np.array(img)
+            # Convert RGB -> BGR for OpenCV-style arrays
+            arr = arr[:, :, ::-1]
+            return arr
+    except Exception:
+        pass
+
+    # Fallback to OpenCV
+    try:
+        return cv2.imdecode(np.fromfile(path, dtype=np.uint8), flags)
+    except Exception:
+        return None
 
 
 def get_path_format(path: Path):

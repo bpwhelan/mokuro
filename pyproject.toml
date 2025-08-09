@@ -52,6 +52,13 @@ owocr = [
     # Windows-specific engines
     "owocr[winocr]>=1.14.7; platform_system == 'Windows'",
     "oneocr>=1.0.9; platform_system == 'Windows'",
+    # Image format plugins
+    "pillow-heif>=0.16.0",
+    "pillow-jxl-plugin>=0.3.2",
+]
+images = [
+    "pillow-heif>=0.16.0",
+    "pillow-jxl-plugin>=0.3.2",
 ]
 
 [project.urls]

@@ -23,6 +23,8 @@ For details, see [Legacy HTML vs. new .mokuro format](#legacy-html-vs-new-mokuro
 mokuro uses [comic-text-detector](https://github.com/dmMaze/comic-text-detector) for text detection
 and [manga-ocr](https://github.com/kha-white/manga-ocr) for OCR.
 
+Supported image formats: jpg, jpeg, png, webp, avif, jxl
+
 Try running on your manga in Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kha-white/mokuro/blob/master/notebooks/mokuro_demo.ipynb)
 
 See also:
@@ -123,6 +125,9 @@ Then run with `--ocr-engine owocr:easyocr` (or another provider). On macOS you c
 Convenience: you can also install owocr (with all supported engines) alongside mokuro via extras:
 - `pip install "mokuro[owocr]"`
   - Installs owocr plus all provider engine extras (EasyOCR, RapidOCR, Lens/LensWeb, Google Vision, Azure, WinRT OCR on Windows, and OneOCR on Windows). On macOS, Apple Vision/Live Text support comes via pyobjc from owocr’s base install. Some providers still require credentials or OS features.
+  - Includes optional image plugins for AVIF and JXL support.
+
+If you only need extended image formats: `pip install "mokuro[images]"`.
 
 ## Legacy HTML vs. new .mokuro format
 
