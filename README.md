@@ -159,3 +159,33 @@ Cache and language codes
   - bo: Bing, os: OCRSpace
   - av: Apple Vision, al: Apple Live Text
   - wo: WinRT OCR, oo: OneOCR
+
+## Docker (default: CUDA)
+
+Default image includes CUDA (Ubuntu 24.04 + CUDA runtime + cuDNN):
+- Build: `docker build -t mokuro-api:local .`
+- Run: `docker run --rm --gpus all -p 7331:7331 mokuro-api:local`
+
+Environment variables:
+- `MOKURO_API_HOST` (default `0.0.0.0`), `MOKURO_API_PORT` (default `7331`)
+- Cloud credentials (optional):
+  - Google Vision: mount `~/.config/google_vision.json` into the container at `/home/appuser/.config/google_vision.json`
+  - Azure: set `AZURE_VISION_ENDPOINT`, `AZURE_VISION_API_KEY`
+  - OCRSpace: set `OCRSPACE_API_KEY`
+
+Push to GHCR via GitHub Actions:
+- Workflow `.github/workflows/publish-ghcr.yml` builds and pushes on branch/tag push.
+- Image name: `ghcr.io/<owner>/<repo>:<tag>`
+
+Manual push to GHCR:
+- `docker build -t ghcr.io/<owner>/<repo>:latest .`
+- `echo $GHCR_PAT | docker login ghcr.io -u <owner> --password-stdin`
+- `docker push ghcr.io/<owner>/<repo>:latest`
+
+CPU-only variants:
+- Debian 13 (Trixie): `docker build -f Dockerfile.trixie -t mokuro-api:trixie .` then `docker run --rm -p 7331:7331 mokuro-api:trixie`
+
+Notes:
+- For CUDA: requires an NVIDIA host (recent driver) and `nvidia-container-toolkit` configured.
+- The image installs CUDA-enabled PyTorch and onnxruntime-gpu. RapidOCR will leverage GPU if supported by ONNX Runtime.
+- JPEG XL runtime comes from Ubuntu’s `libjxl0.7` (from the `jpeg-xl` source package) on 24.04. Tools are `libjxl-tools`. No source build needed.

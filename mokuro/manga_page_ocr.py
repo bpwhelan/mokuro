@@ -182,8 +182,12 @@ class MangaPageOcr:
                 self._owocr_engine = engine_instance
 
                 def _call_with_owocr(img_pil):
-                    ok, text = self._owocr_engine(img_pil)
-                    return text if ok else ""
+                    try:
+                        ok, text = self._owocr_engine(img_pil)
+                        return text if ok else ""
+                    except (IndexError, KeyError, TypeError) as e:
+                        logger.warning(f"OCR engine error (likely empty/invalid response): {e}")
+                        return ""
 
                 self._ocr_callable = _call_with_owocr
             else:
