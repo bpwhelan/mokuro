@@ -53,7 +53,11 @@ RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu126 \
         torch torchvision torchaudio && \
     pip install --no-cache-dir \
-        ".[api,owocr]" && \
+        ".[api,owocr]" \
+        slowapi>=0.1.9 \
+        cachetools>=5.3.0 \
+        psutil>=5.9.0 \
+        pyyaml>=6.0 && \
     # Prefer GPU ONNX Runtime for RapidOCR; replace CPU build if present
     pip uninstall -y onnxruntime || true && \
     pip install --no-cache-dir onnxruntime-gpu
@@ -65,6 +69,11 @@ USER appuser
 EXPOSE 7331
 
 ENV MOKURO_API_HOST=0.0.0.0 \
-    MOKURO_API_PORT=7331
+    MOKURO_API_PORT=7331 \
+    MOKURO_MAX_PARALLEL_OCR=3 \
+    MOKURO_REQUEST_QUEUE_SIZE=10 \
+    MOKURO_OCR_TIMEOUT=30 \
+    MOKURO_CACHE_TTL=300 \
+    MOKURO_MAX_MEMORY_PERCENT=80
 
-ENTRYPOINT ["mokuro-api"]
+CMD ["uvicorn", "mokuro.api_server.priority_server_v3_fixed:app", "--host", "0.0.0.0", "--port", "7331", "--workers", "1"]

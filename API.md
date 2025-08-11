@@ -1,691 +1,892 @@
-# Mokuro API Server – API Documentation
+# Mokuro API Server Documentation
 
-A complete, implementation‑accurate description of the Mokuro API Server as observed from the codebase and validated against a running instance at `http://localhost:7331`. This document is intended for faithful re‑implementation in a new project.
+**Version**: 0.3.6  
+**Server Port**: 7331 (default)
 
-- Base URL: `http://localhost:7331`
-- Auth: none
-- CORS: enabled (`Access-Control-Allow-Origin: *`)
-- Max upload size: 50MB (request body)
-- Supported image types: `png, jpg, jpeg, webp, avif, bmp, tiff`
-- Content type: `application/json` for all responses
-- Version: `0.2.2` (returned in `/health`, `/api/info`, and OCR results)
+## Table of Contents
+1. [Overview](#overview)
+2. [Quick Start](#quick-start)
+3. [Architecture](#architecture)
+4. [API Endpoints](#api-endpoints)
+5. [Priority Queue System](#priority-queue-system)
+6. [OCR Engines](#ocr-engines)
+7. [Configuration](#configuration)
+8. [Error Handling](#error-handling)
+9. [Integration Examples](#integration-examples)
+10. [Performance & Limits](#performance--limits)
 
-Notes
-- Endpoints accept `multipart/form-data` for image uploads.
-- OCR engines are discovered at runtime via a registry and are kept in memory (warm) for performance.
-- Temporary files are used for processing and cleaned up after each request.
-- Errors return JSON with an `error` string and a relevant HTTP status code.
+---
 
+## Overview
 
-## Health
+The Mokuro API Server is a high-performance, priority-based OCR service designed specifically for manga and comic text extraction. It provides asynchronous processing with a sophisticated priority queue system, supporting multiple OCR engines and handling concurrent requests efficiently.
 
-GET `/health`
+### Key Features
+- **Priority-based request processing** with 5 priority levels
+- **Asynchronous operation** - requests return immediately with tracking ID
+- **Multiple OCR engine support** - 13+ OCR providers including specialized manga engines
+- **Smart resource management** - separate pools for critical and normal requests
+- **Engine pooling** - reuses OCR instances to minimize initialization overhead
+- **Automatic result caching** - 5-minute TTL cache for completed results
+- **Rate limiting** - per-IP request throttling
+- **CORS enabled** - ready for web integration
+- **OpenAPI/Swagger documentation** - available at `/docs`
 
-Returns server status, Mokuro version, and currently available OCR engines.
+### What It Does
+The server extracts text from manga/comic images, returning structured data with:
+- Text content for each detected region
+- Bounding box coordinates for text blocks
+- Line-by-line coordinates within blocks
+- Font size estimation
+- Vertical/horizontal text orientation detection
 
-Example response (observed):
-```json
-{
-  "available_engines": ["lens", "manga-ocr"],
-  "status": "healthy",
-  "version": "0.2.2"
-}
+---
+
+## Quick Start
+
+### Starting the Server
+```bash
+# Default configuration (port 7331)
+mokuro-api
+
+# Custom configuration
+MOKURO_API_PORT=8080 MOKURO_API_HOST=0.0.0.0 mokuro-api
 ```
 
+### Basic Usage Example
+```python
+import requests
+import time
 
-## API Info
+# 1. Submit image for OCR
+with open('manga_page.jpg', 'rb') as f:
+    response = requests.post(
+        'http://localhost:7331/api/ocr',
+        files={'image': f},
+        data={
+            'priority': '2',  # NORMAL priority
+            'ocr_engine': 'manga-ocr',
+            'force_cpu': 'false'
+        }
+    )
+    
+result = response.json()
+request_id = result['request_id']
+print(f"Request queued: {request_id}")
 
-GET `/api/info`
+# 2. Poll for results
+while True:
+    response = requests.get(f'http://localhost:7331/api/result/{request_id}')
+    result = response.json()
+    
+    if result['status'] == 'completed':
+        print("OCR Results:", result['result'])
+        break
+    elif result['status'] == 'failed':
+        print("OCR Failed:", result['error'])
+        break
+    
+    time.sleep(0.5)  # Wait before next poll
+```
 
-Describes API capabilities, supported formats, size limits, and engine availability at runtime.
+---
 
-Example response (abridged, observed):
+## Architecture
+
+### Request Flow
+1. **Client submits image** → Server returns `request_id` immediately
+2. **Request enters priority queue** → Position based on priority level
+3. **Background processor picks up request** → Based on priority and available workers
+4. **OCR engine processes image** → Text detection and recognition
+5. **Results stored in cache** → Available for retrieval
+6. **Client polls for results** → Using the `request_id`
+
+### Component Architecture
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Client    │────▶│  API Server  │────▶│OCR Engines  │
+└─────────────┘     └──────────────┘     └─────────────┘
+                            │                    │
+                    ┌──────────────┐     ┌─────────────┐
+                    │Priority Queue│     │Engine Pool  │
+                    └──────────────┘     └─────────────┘
+                            │
+                    ┌──────────────┐
+                    │Result Cache  │
+                    └──────────────┘
+```
+
+---
+
+## API Endpoints
+
+### 1. Health Check - `GET /health`
+
+Check server health and get current statistics.
+
+**Response:**
 ```json
 {
-  "name": "Mokuro API Server",
-  "version": "0.2.2",
-  "supported_formats": ["avif","jpg","tiff","webp","png","bmp","jpeg"],
-  "max_file_size": "50MB",
-  "endpoints": {
-    "/api/ocr": {
-      "method": "POST",
-      "description": "Process a single image",
-      "parameters": {
-        "image": "Image file (required)",
-        "ocr_engine": "manga-ocr or lens (optional, default: manga-ocr)",
-        "force_cpu": "boolean (optional, default: false)"
+  "status": "healthy",
+  "version": "0.3.6",
+  "stats": {
+    "queue_length": 5,
+    "active_critical": 2,
+    "active_other": 1,
+    "stats": {
+      "total_queued": 150,
+      "total_processed": 145,
+      "total_cancelled": 0,
+      "by_priority": {
+        "0": 10,  // CRITICAL
+        "1": 20,  // HIGH
+        "2": 80,  // NORMAL
+        "3": 25,  // LOW
+        "4": 15   // BACKGROUND
       }
     },
-    "/api/ocr/batch": {
-      "method": "POST",
-      "description": "Process multiple images",
-      "parameters": {
-        "images": "Multiple image files (required)",
-        "ocr_engine": "manga-ocr or lens (optional, default: manga-ocr)",
-        "force_cpu": "boolean (optional, default: false)"
-      }
-    }
-  },
-  "ocr_engines": {
-    "lens": "Google Lens OCR with multilingual support (requires Node.js and chrome-lens-ocr)",
-    "manga-ocr": "Fast offline OCR specialized for Japanese manga"
-  },
-  "ocr_engines_detailed": {
-    "lens": {
-      "available": true,
-      "requirements": [
-        "Node.js",
-        "chrome-lens-ocr npm package (install with: npm install chrome-lens-ocr)",
-        "lens_ocr_wrapper.js in project root"
-      ],
-      "suggested_language_code": "gl"
-    },
-    "manga-ocr": {
-      "available": true,
-      "requirements": [
-        "manga-ocr Python package",
-        "PyTorch",
-        "Transformers library"
-      ],
-      "suggested_language_code": "mo"
+    "engine_pool": {
+      "total_engines": 2,
+      "engines": [
+        {
+          "engine": "manga_ocr",
+          "force_cpu": false,
+          "usage_count": 145
+        }
+      ]
     }
   }
 }
 ```
 
+### 2. Submit OCR Request - `POST /api/ocr`
 
-## Process One Image
+Submit an image for OCR processing.
 
-POST `/api/ocr`
+**Request (multipart/form-data):**
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `image` | file | Yes | - | Image file (JPG, PNG, WebP, AVIF, JXL) |
+| `priority` | string | No | "2" | Priority level (0-4) |
+| `ocr_engine` | string | No | "manga-ocr" | OCR engine to use |
+| `force_cpu` | string | No | "false" | Force CPU processing |
 
-Multipart form-data parameters:
-- `image` (required): The image file to process.
-- `ocr_engine` (optional): Which OCR engine to use. Must be one of the values reported by `/health` or `/api/info`. Defaults to `manga-ocr`.
-- `force_cpu` (optional): String boolean. Only the literal `"true"` (any case) is treated as true; all other values are false. Default is false.
+**Priority Levels:**
+- `0` - CRITICAL: Highest priority, processed immediately
+- `1` - HIGH: High priority processing
+- `2` - NORMAL: Default priority
+- `3` - LOW: Lower priority
+- `4` - BACKGROUND: Lowest priority, batch processing
 
-Behavior:
-- Validates presence of `image` and that its extension is one of the supported formats.
-- Validates `ocr_engine` is currently available; otherwise responds with 400.
-- Saves the uploaded file to a temp file, processes it, then deletes it.
-- Returns an OCR result JSON object (see Data Model) with `filename` and `ocr_engine` fields added.
-
-Example: default engine (`manga-ocr`)
-```bash
-curl -X POST http://localhost:7331/api/ocr \
-  -F "image=@tests/data/input/test0/vol1/000a.jpg"
-```
-Response (abridged):
+**Response:**
 ```json
 {
-  "version": "0.2.2",
-  "filename": "000a.jpg",
-  "ocr_engine": "manga-ocr",
-  "img_width": 827,
-  "img_height": 1170,
-  "blocks": [
-    {
-      "box": [37,0,863,235],
-      "vertical": null,
-      "font_size": 137.5,
-      "lines_coords": [
-        [[582.0,18.0],[785.0,13.0],[787.0,53.0],[583.0,58.0]],
-        [[37.0,0.0],[863.0,0.0],[863.0,235.0],[37.0,235.0]]
-      ],
-      "lines": ["ダイアリー・","うちの猫ず日記"]
+  "status": "queued",
+  "request_id": "a1b2c3d4",
+  "priority": 2,
+  "queue_position": 3,
+  "estimated_wait_ms": 1500
+}
+```
+
+**Error Responses:**
+- `400` - Invalid parameters (bad priority, unknown engine, etc.)
+- `413` - Image too large
+- `503` - Queue full
+
+**Size Limits:**
+- All priorities: 100MB max per image
+
+### 3. Get OCR Result - `GET /api/result/{request_id}`
+
+Retrieve the OCR results for a submitted request.
+
+**Response States:**
+
+**Queued:**
+```json
+{
+  "status": "queued"
+}
+```
+
+**Processing:**
+```json
+{
+  "status": "processing"
+}
+```
+
+**Completed:**
+```json
+{
+  "status": "completed",
+  "result": {
+    "version": "0.2.2",
+    "img_width": 827,
+    "img_height": 1170,
+    "blocks": [
+      {
+        "box": [37, 0, 863, 235],
+        "vertical": false,
+        "font_size": 137.5,
+        "lines_coords": [
+          [[582.0, 18.0], [785.0, 13.0], [787.0, 53.0], [583.0, 58.0]],
+          [[37.0, 0.0], [863.0, 0.0], [863.0, 235.0], [37.0, 235.0]]
+        ],
+        "lines": [
+          "第1話",
+          "魔法少女と契約"
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Failed:**
+```json
+{
+  "status": "failed",
+  "error": "Invalid image format"
+}
+```
+
+**Error Response:**
+- `404` - Request ID not found
+
+### 4. Queue Status - `GET /api/queue/status`
+
+Get detailed queue and processing statistics.
+
+**Response:**
+```json
+{
+  "queue_length": 8,
+  "active_critical": 3,
+  "active_other": 2,
+  "stats": {
+    "total_queued": 1543,
+    "total_processed": 1535,
+    "total_cancelled": 0,
+    "by_priority": {
+      "0": 100,
+      "1": 243,
+      "2": 800,
+      "3": 300,
+      "4": 100
+    }
+  },
+  "engine_pool": {
+    "total_engines": 3,
+    "engines": [
+      {
+        "engine": "manga_ocr",
+        "force_cpu": false,
+        "usage_count": 1200
+      },
+      {
+        "engine": "owocr:glens",
+        "force_cpu": false,
+        "usage_count": 335
+      }
+    ]
+  }
+}
+```
+
+### 5. OCR Engine Information - `GET /api/info`
+
+Get available OCR engines and their capabilities.
+
+**Response:**
+```json
+{
+  "ocr_engines_detailed": {
+    "manga-ocr": {
+      "description": "Manga OCR OCR engine",
+      "display_name": "Manga OCR",
+      "available": true,
+      "version": "1.0.0",
+      "capabilities": ["text_detection", "text_recognition", "manga_optimized"],
+      "suggested_language_code": "mo"
     },
-    { "box": [233,1048,608,1170], ... }
-  ]
+    "lens": {
+      "description": "Google Lens OCR engine",
+      "display_name": "Google Lens",
+      "available": true,
+      "version": "1.0.0",
+      "capabilities": ["text_detection", "text_recognition", "multilingual", "web_based"],
+      "suggested_language_code": "gl"
+    }
+  }
 }
 ```
 
-Example: select Google Lens engine
+### 6. OpenAPI Documentation - `GET /docs`
+
+Interactive Swagger UI documentation for the API.
+
+### 7. OpenAPI Specification - `GET /openapi.json`
+
+Machine-readable OpenAPI specification.
+
+---
+
+## Priority Queue System
+
+### How It Works
+
+The server uses a sophisticated priority queue system that ensures critical requests are processed first while maintaining fairness for lower-priority requests.
+
+#### Queue Behavior
+1. **Priority Ordering**: Requests are processed in priority order (0 = highest, 4 = lowest)
+2. **FIFO Within Priority**: Requests with the same priority are processed first-in-first-out
+3. **Queue Position**: Calculated based on how many equal or higher priority requests are ahead
+4. **Eviction Policy**: Higher priority requests can evict lower priority ones when queue is full
+
+#### Worker Pools
+- **Critical Pool**: 4 concurrent workers for CRITICAL (priority 0) requests
+- **Other Pool**: 2 concurrent workers for all other priorities (1-4)
+- **Exclusivity**: When critical requests are processing, other priorities wait
+
+#### Priority Clamping
+- Invalid negative values → clamped to 0 (CRITICAL)
+- Invalid high values (>4) → clamped to 4 (BACKGROUND)
+- No priority specified → defaults to 2 (NORMAL)
+
+### Example Priority Scenarios
+
+**Scenario 1: Mixed Priority Queue**
+```
+Queue: [CRITICAL, CRITICAL, HIGH, NORMAL, NORMAL, LOW, BACKGROUND]
+Processing Order: Exactly as shown (priority order)
+```
+
+**Scenario 2: Queue Full with Eviction**
+```
+Queue Full (50 requests, all NORMAL)
+New CRITICAL request arrives → Evicts lowest priority request
+New BACKGROUND request arrives → Rejected (503 error)
+```
+
+---
+
+## OCR Engines
+
+### Available Engines
+
+| Engine ID | Display Name | Requirements | Platform | Description |
+|-----------|--------------|--------------|----------|-------------|
+| `manga-ocr` | Manga OCR | manga-ocr, torch | All | Specialized for Japanese manga |
+| `lens` | Google Lens | owocr[lens] | All | Google's OCR via Lens API |
+| `lensweb` | Google Lens (web) | owocr[lensweb] | All | Web-based Google Lens |
+| `easyocr` | EasyOCR | owocr[easyocr] | All | Multi-language OCR |
+| `rapidocr` | RapidOCR | owocr[rapidocr] | All | Fast ONNX-based OCR |
+| `gvision` | Google Vision | owocr[gvision], credentials | All | Google Cloud Vision API |
+| `azure` | Azure Image Analysis | owocr[azure], API keys | All | Azure Cognitive Services |
+| `bing` | Bing | owocr | All | Bing OCR service |
+| `ocrspace` | OCRSpace | owocr, API key | All | OCRSpace online service |
+| `avision` | Apple Vision | owocr, pyobjc | macOS | Apple's Vision framework |
+| `alivetext` | Apple Live Text | owocr, pyobjc | macOS | Apple's Live Text |
+| `winrtocr` | WinRT OCR | owocr[winocr] | Windows | Windows Runtime OCR |
+| `oneocr` | OneOCR | oneocr | Windows | Windows OneOCR |
+
+### Engine Selection Guidelines
+
+**For Manga/Comics:**
+- `manga-ocr`: Best for Japanese manga (vertical & horizontal text)
+- `lens`: Good accuracy, handles various languages
+- `lensweb`: Alternative to lens, web-based
+
+**For Speed:**
+- `rapidocr`: Fastest offline option
+- `easyocr`: Good balance of speed and accuracy
+
+**For Accuracy:**
+- `gvision`: Highest accuracy (requires Google Cloud account)
+- `azure`: Enterprise-grade accuracy (requires Azure account)
+
+### Engine Pooling
+
+The server maintains a pool of OCR engine instances to avoid initialization overhead:
+- Engines are created on first use
+- Instances are reused across requests
+- Separate instances for CPU/GPU modes
+- Thread-safe with per-engine locks
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MOKURO_API_HOST` | 0.0.0.0 | Server bind address |
+| `MOKURO_API_PORT` | 7331 | Server port |
+| `MOKURO_MAX_UPLOAD_BYTES` | 104857600 | Max upload size (100MB) |
+| `MOKURO_MAX_PARALLEL_CRITICAL` | 4 | Max concurrent critical requests |
+| `MOKURO_MAX_PARALLEL_OTHER` | 2 | Max concurrent other requests |
+| `MOKURO_REQUEST_QUEUE_SIZE` | 50 | Maximum queue size |
+| `MOKURO_OCR_TIMEOUT` | 30 | OCR processing timeout (seconds) |
+| `MOKURO_CACHE_TTL` | 300 | Result cache TTL (seconds) |
+| `MOKURO_PRELOAD_MODELS` | true | Preload models on startup |
+
+### OCR Engine Configuration
+
+**Google Vision:**
 ```bash
-curl -X POST http://localhost:7331/api/ocr \
-  -F "image=@tests/data/input/test0/vol1/000a.jpg" \
-  -F "ocr_engine=lens"
-```
-Response (abridged; text content differs between engines):
-```json
-{
-  "version": "0.2.2",
-  "filename": "000a.jpg",
-  "ocr_engine": "lens",
-  "img_width": 827,
-  "img_height": 1170,
-  "blocks": [
-    {
-      "box": [37,0,863,235],
-      "font_size": 137.5,
-      "lines": ["ダイアリー","にゃん タイアリーうちの猫ず日記"],
-      "lines_coords": [...],
-      "vertical": null
-    },
-    ...
-  ]
-}
+# Place credentials at ~/.config/google_vision.json
+export GOOGLE_APPLICATION_CREDENTIALS=~/.config/google_vision.json
 ```
 
-Example: force CPU
+**Azure:**
 ```bash
-curl -X POST http://localhost:7331/api/ocr \
-  -F "image=@tests/data/input/test0/vol1/002a.jpg" \
-  -F "force_cpu=true"
-```
-Example response (counts only):
-```json
-{"ocr_engine":"manga-ocr","img_width":827,"img_height":1170,"blocks_count":17}
+export AZURE_VISION_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
+export AZURE_VISION_API_KEY=your-api-key
 ```
 
-Error examples (observed):
-- Missing file
-  - Request: `POST /api/ocr` with no form data
-  - Response: `400`
-    ```json
-    {"error":"No image file provided"}
-    ```
-- Invalid file type
-  - Request: `-F "image=@README.md"`
-  - Response: `400`
-    ```json
-    {"error":"Invalid file type. Allowed types: avif, jpg, tiff, webp, png, bmp, jpeg"}
-    ```
-  - Note: the order of extensions in the message reflects iteration order of the server’s allowed set.
-- Invalid OCR engine
-  - Request: `-F "image=@.../000a.jpg" -F "ocr_engine=notreal"`
-  - Response: `400`
-    ```json
-    {"error":"Invalid OCR engine. Available engines: lens, manga-ocr"}
-    ```
-- Payload too large (> 50MB)
-  - Response: `413`
-    ```json
-    {"error":"File too large. Maximum size is 50MB"}
-    ```
-- Internal error
-  - Response: `500`
-    ```json
-    {"error":"Internal server error"}
-    ```
-
-
-## Process Multiple Images (Batch)
-
-POST `/api/ocr/batch`
-
-Multipart form-data parameters:
-- `images` (required): Repeat this field for each file.
-- `ocr_engine` (optional): Same rules as single-image endpoint.
-- `force_cpu` (optional): Same rules as single-image endpoint.
-
-Behavior:
-- Validates that at least one `images` file part is provided; otherwise 400.
-- For each provided file:
-  - If extension invalid, appends an error object for that file (request still returns 200).
-  - Otherwise processes the file with the selected engine and appends the OCR result object.
-- Response is always 200 unless the entire request is malformed or an unhandled exception occurs. Individual item errors are embedded in `results`.
-
-Example:
+**OCRSpace:**
 ```bash
-curl -X POST http://localhost:7331/api/ocr/batch \
-  -F "images=@tests/data/input/test0/vol1/000a.jpg" \
-  -F "images=@tests/data/input/test0/vol1/001a.jpg"
-```
-Response (counts):
-```json
-{
-  "results": [
-    {"filename":"000a.jpg","img_width":827,"img_height":1170,"blocks":[...]},
-    {"filename":"001a.jpg","img_width":827,"img_height":1170,"blocks":[...]}
-  ]
-}
+export OCRSPACE_API_KEY=your-api-key
 ```
 
-Mixed valid + invalid file:
-```bash
-curl -X POST http://localhost:7331/api/ocr/batch \
-  -F "images=@tests/data/input/test0/vol1/000a.jpg" \
-  -F "images=@README.md"
-```
-Response:
-```json
-{
-  "results": [
-    {"filename":"000a.jpg","version":"0.2.2","ocr_engine":"manga-ocr", ...},
-    {"filename":"README.md","error":"Invalid file type. Allowed types: avif, jpg, tiff, webp, png, bmp, jpeg"}
-  ]
-}
-```
-
-Error example:
-- Missing files
-  - Request: `POST /api/ocr/batch` with no form data
-  - Response: `400`
-    ```json
-    {"error":"No image files provided"}
-    ```
-
-
-## Data Model
-
-OCR result object (per image):
-- `version` (string): Mokuro library version that produced the result (e.g., `"0.2.2"`).
-- `img_width` (number): Image width in pixels.
-- `img_height` (number): Image height in pixels.
-- `blocks` (array of Block): Detected text blocks.
-
-Block:
-- `box` (array[number, number, number, number]): Bounding rectangle `[x0, y0, x1, y1]`.
-- `vertical` (boolean|null): Whether block text is vertical. May be `null` if not applicable.
-- `font_size` (number): Estimated font size.
-- `lines_coords` (array of 4-point polygons): For each recognized line, a 4‑point quadrilateral `[[x,y], [x,y], [x,y], [x,y]]`.
-- `lines` (array[string]): Recognized line texts (same order as `lines_coords`).
-
-Fields added by API:
-- `filename` (string): Original uploaded filename.
-- `ocr_engine` (string): Engine used for OCR (e.g., `"manga-ocr"`, `"lens"`).
-
-Batch responses:
-- Top-level: `{ "results": [ ... ] }` where each element is either:
-  - an OCR result object (as above), or
-  - an error object: `{ "filename": string, "error": string }`.
-
-
-## Parameters and Validation
-
-- `image` (single upload): required for `/api/ocr`.
-- `images` (batch upload): required for `/api/ocr/batch` (at least one part).
-- Allowed extensions: `{png, jpg, jpeg, webp, avif, bmp, tiff}` (extension is checked case‑insensitively).
-- `ocr_engine`: default `"manga-ocr"`; must be listed in `available_engines`.
-- `force_cpu`: only the literal string `"true"` (case‑insensitive) becomes `True`; anything else is `False`.
-- File size: requests exceeding `50MB` return `413` with a JSON error.
-
+---
 
 ## Error Handling
 
-- `200 OK`:
-  - Successful single image processing.
-  - Batch processing even with some invalid items (per‑item errors embedded in `results`).
-- `400 Bad Request`:
-  - Missing required file part(s).
-  - Invalid file type.
-  - Invalid OCR engine.
-- `413 Request Entity Too Large`:
-  - Request exceeds configured max size.
-- `500 Internal Server Error`:
-  - Unhandled exceptions produce `{ "error": "Internal server error" }`.
-  - Handler‑level exceptions during processing may respond `{ "error": "Processing failed: ..." }` or `{ "error": "Batch processing failed: ..." }` with status 500.
+### HTTP Status Codes
 
+| Code | Meaning | Common Causes |
+|------|---------|---------------|
+| 200 | Success | Request processed successfully |
+| 400 | Bad Request | Invalid parameters, unknown engine |
+| 404 | Not Found | Request ID doesn't exist |
+| 413 | Payload Too Large | Image exceeds size limit |
+| 422 | Unprocessable Entity | Validation error |
+| 503 | Service Unavailable | Queue full |
 
-## Engines and Behavior
-
-- Engines are registered dynamically via an OCR registry and may vary by environment.
-- To discover engines at runtime, use `/health` or `/api/info`.
-- Common engines:
-  - `manga-ocr`: local, fast, specialized for Japanese manga; supports GPU (CUDA/MPS) if available unless `force_cpu=true`.
-  - `lens`: uses a Node.js wrapper (chrome‑lens‑ocr) around Google Lens OCR; requires Node.js and a wrapper script; has internal retry/backoff and a small delay between attempts.
-- The detection/OCR pipeline:
-  1. Detect text regions with a CNN-based text detector.
-  2. Segment into blocks and lines; rotate vertical lines as needed and split very long lines into chunks.
-  3. Run the chosen OCR engine per line/chunk.
-  4. Return block rectangles (`box`), line polygons (`lines_coords`), and recognized text (`lines`).
-- Batch requests reuse a single engine instance for all images in that request.
-
-
-## Environment and Runtime
-
-- Host/Port defaults:
-  - Host: `0.0.0.0`
-  - Port: `7331`
-- Environment variables (server runtime):
-  - `MOKURO_HOST` (default `0.0.0.0`)
-  - `MOKURO_PORT` (default `7331`)
-  - `MOKURO_DEBUG` (`true`/`false`, default `false`)
-  - `MOKURO_PRELOAD_MODELS` (`true`/`false`, default `true`): preloads available engines at startup
-- CORS: enabled globally.
-- JSON: numpy ints/floats/arrays are serialized to plain JSON numbers/arrays; clients see normal JSON types.
-
-
-## End-to-End Examples
-
-- WebP support
-```bash
-curl -X POST http://localhost:7331/api/ocr \
-  -F "image=@tests/data/input/test1_webp/vol1/000a.webp"
-```
-Response (counts):
-```json
-{"filename":"000a.webp","img_width":827,"img_height":1170,"blocks_count":2}
-```
-
-- Minimal batch with two images
-```bash
-curl -X POST http://localhost:7331/api/ocr/batch \
-  -F "images=@tests/data/input/test0/vol1/000a.jpg" \
-  -F "images=@tests/data/input/test0/vol1/001a.jpg"
-```
-Response (counts):
+### Error Response Format
 ```json
 {
-  "results_count": 2,
-  "sample0": {"filename":"000a.jpg","img_width":827,"img_height":1170,"blocks":2},
-  "sample1": {"filename":"001a.jpg","img_width":827,"img_height":1170,"blocks":13}
+  "detail": "Error description"
 }
 ```
 
+### Common Error Scenarios
 
-## OpenAPI 3.0 Schema (YAML)
-
-```yaml
-openapi: 3.0.3
-info:
-  title: Mokuro API Server
-  version: "0.2.2"
-servers:
-  - url: http://localhost:7331
-paths:
-  /health:
-    get:
-      summary: Health check
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [status, version, available_engines]
-                properties:
-                  status:
-                    type: string
-                    example: healthy
-                  version:
-                    type: string
-                    example: "0.2.2"
-                  available_engines:
-                    type: array
-                    items:
-                      type: string
-                    example: ["lens","manga-ocr"]
-  /api/info:
-    get:
-      summary: API capabilities
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [name, version, supported_formats, max_file_size, endpoints, ocr_engines, ocr_engines_detailed]
-                properties:
-                  name: { type: string }
-                  version: { type: string }
-                  supported_formats:
-                    type: array
-                    items: { type: string }
-                  max_file_size: { type: string, example: "50MB" }
-                  endpoints:
-                    type: object
-                    additionalProperties: { type: object }
-                  ocr_engines:
-                    type: object
-                    additionalProperties: { type: string }
-                  ocr_engines_detailed:
-                    type: object
-                    additionalProperties:
-                      type: object
-                      properties:
-                        available: { type: boolean }
-                        description: { type: string }
-                        requirements:
-                          type: array
-                          items: { type: string }
-                        suggested_language_code: { type: string }
-  /api/ocr:
-    post:
-      summary: Process a single image
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [image]
-              properties:
-                image:
-                  type: string
-                  format: binary
-                  description: Image file (png, jpg, jpeg, webp, avif, bmp, tiff)
-                ocr_engine:
-                  type: string
-                  description: OCR engine to use (defaults to manga-ocr)
-                force_cpu:
-                  type: string
-                  description: "Boolean string: 'true'/'false' (default false)"
-      responses:
-        "200":
-          description: OCR result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OcrResultWithMeta"
-        "400":
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "413":
-          description: Payload too large
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-  /api/ocr/batch:
-    post:
-      summary: Process multiple images
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [images]
-              properties:
-                images:
-                  type: array
-                  items:
-                    type: string
-                    format: binary
-                  description: Repeat the 'images' field for each file
-                ocr_engine:
-                  type: string
-                force_cpu:
-                  type: string
-      responses:
-        "200":
-          description: Batch results with per-item success or error
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [results]
-                properties:
-                  results:
-                    type: array
-                    items:
-                      oneOf:
-                        - $ref: "#/components/schemas/OcrResultWithMeta"
-                        - $ref: "#/components/schemas/ErrorWithFilename"
-        "400":
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "413":
-          description: Payload too large
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-components:
-  schemas:
-    OcrResult:
-      type: object
-      required: [version, img_width, img_height, blocks]
-      properties:
-        version:
-          type: string
-          example: "0.2.2"
-        img_width:
-          type: number
-          format: float
-          example: 827
-        img_height:
-          type: number
-          format: float
-          example: 1170
-        blocks:
-          type: array
-          items:
-            $ref: "#/components/schemas/Block"
-    OcrResultWithMeta:
-      allOf:
-        - $ref: "#/components/schemas/OcrResult"
-        - type: object
-          properties:
-            filename:
-              type: string
-              example: "000a.jpg"
-            ocr_engine:
-              type: string
-              example: "manga-ocr"
-    Block:
-      type: object
-      required: [box, font_size, lines_coords, lines]
-      properties:
-        box:
-          type: array
-          items: { type: number }
-          minItems: 4
-          maxItems: 4
-          example: [37, 0, 863, 235]
-        vertical:
-          type: boolean
-          nullable: true
-        font_size:
-          type: number
-          format: float
-          example: 137.5
-        lines_coords:
-          type: array
-          items:
-            type: array
-            items:
-              type: array
-              items: { type: number }
-              minItems: 2
-              maxItems: 2
-            minItems: 4
-            maxItems: 4
-          example: [[[582.0,18.0],[785.0,13.0],[787.0,53.0],[583.0,58.0]]]
-        lines:
-          type: array
-          items: { type: string }
-          example: ["ダイアリー・","うちの猫ず日記"]
-    Error:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: string
-    ErrorWithFilename:
-      allOf:
-        - $ref: "#/components/schemas/Error"
-        - type: object
-          required: [filename]
-          properties:
-            filename:
-              type: string
+**Invalid Priority:**
+```json
+{
+  "detail": "Invalid priority value: abc. Must be 0-4"
+}
 ```
 
+**Unknown Engine:**
+```json
+{
+  "detail": "Invalid engine: unknown-engine"
+}
+```
 
-## Re‑implementation Checklist
+**Queue Full:**
+```json
+{
+  "detail": "Queue full with equal or higher priority requests"
+}
+```
 
-- Server Basics
-  - CORS enabled for all origins.
-  - Default host/port: `0.0.0.0:7331`.
-  - Env vars: `MOKURO_HOST`, `MOKURO_PORT`, `MOKURO_DEBUG`, `MOKURO_PRELOAD_MODELS`.
-  - Max body size: 50MB → return 413 with `{ "error": "File too large. Maximum size is 50MB" }`.
-  - Save uploads to temp dir; name with UUID + sanitized filename; delete in finally.
+**Image Too Large:**
+```json
+{
+  "detail": "Image too large: 125.3MB (max 100.0MB)"
+}
+```
 
-- Endpoints
-  - GET `/health` → `{ status, version, available_engines }`.
-  - GET `/api/info` → capabilities, formats, limits, short and detailed engines.
-  - POST `/api/ocr` → multipart with `image` (required), `ocr_engine` (optional), `force_cpu` (optional).
-  - POST `/api/ocr/batch` → multipart with repeated `images` (required), optional `ocr_engine`, `force_cpu`.
+---
 
-- Request Parsing
-  - `ocr_engine` default `manga-ocr`; must be in runtime available list.
-  - `force_cpu`: only string `"true"` → true; otherwise false.
+## Integration Examples
 
-- Validation
-  - Allowed extensions: `png, jpg, jpeg, webp, avif, bmp, tiff`.
-  - `/api/ocr` errors:
-    - 400 no image: `{ "error": "No image file provided" }`.
-    - 400 bad type: `{ "error": "Invalid file type. Allowed types: ..." }` (order of types may vary).
-    - 400 bad engine: `{ "error": "Invalid OCR engine. Available engines: <list>" }`.
-  - `/api/ocr/batch` errors:
-    - 400 no images: `{ "error": "No image files provided" }`.
-    - Mixed input: per-item errors in `results`; overall 200.
+### Python Client with Retry Logic
+```python
+import requests
+import time
+from typing import Optional, Dict
 
-- OCR Engine Registry & Caching
-  - Registry with `register`, `list_engines`, `get_available_engines`, `get_engine_instance`.
-  - Cache key:
-    - `manga-ocr`: depends on `force_cpu` only (e.g., `manga-ocr:force_cpu=true|false`).
-    - Others: include full kwargs.
-  - Engines:
-    - `manga-ocr` (local, GPU/MPS if available unless forced CPU).
-    - `lens` (Node.js + chrome‑lens‑ocr; wrapper script; limited retries + small delay inside engine).
+class MokuroClient:
+    def __init__(self, base_url: str = "http://localhost:7331"):
+        self.base_url = base_url
+        self.session = requests.Session()
+    
+    def process_image(
+        self,
+        image_path: str,
+        priority: int = 2,
+        engine: str = "manga-ocr",
+        timeout: int = 30
+    ) -> Optional[Dict]:
+        """Process an image with OCR"""
+        
+        # Submit request
+        with open(image_path, 'rb') as f:
+            response = self.session.post(
+                f"{self.base_url}/api/ocr",
+                files={'image': f},
+                data={
+                    'priority': str(priority),
+                    'ocr_engine': engine,
+                    'force_cpu': 'false'
+                }
+            )
+        
+        if response.status_code != 200:
+            raise Exception(f"Submit failed: {response.text}")
+        
+        request_id = response.json()['request_id']
+        
+        # Poll for results
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            response = self.session.get(
+                f"{self.base_url}/api/result/{request_id}"
+            )
+            
+            if response.status_code == 404:
+                raise Exception("Request ID not found")
+            
+            result = response.json()
+            status = result['status']
+            
+            if status == 'completed':
+                return result['result']
+            elif status == 'failed':
+                raise Exception(f"OCR failed: {result.get('error', 'Unknown error')}")
+            
+            # Adaptive polling - start fast, slow down over time
+            elapsed = time.time() - start_time
+            if elapsed < 2:
+                time.sleep(0.1)
+            elif elapsed < 5:
+                time.sleep(0.5)
+            else:
+                time.sleep(1.0)
+        
+        raise TimeoutError(f"OCR timeout after {timeout} seconds")
 
-- Detection + OCR Pipeline
-  - Detect text regions, segment blocks/lines, rotate vertical lines, split long lines.
-  - OCR each line/chunk; assemble `lines` and `lines_coords`.
+# Usage
+client = MokuroClient()
+result = client.process_image(
+    "manga_page.jpg",
+    priority=1,  # HIGH priority
+    engine="lens"
+)
+print(f"Found {len(result['blocks'])} text blocks")
+```
 
-- Response Shape
-  - Per-image result fields: `version`, `img_width`, `img_height`, `blocks`.
-  - Block fields: `box`, `vertical`, `font_size`, `lines_coords` (4‑point polygons per line), `lines`.
-  - API adds: `filename`, `ocr_engine`.
-  - Batch: `{ "results": [ OcrResult | { filename, error } ] }`.
+### JavaScript/TypeScript Client
+```typescript
+interface OCRResult {
+  version: string;
+  img_width: number;
+  img_height: number;
+  blocks: Array<{
+    box: [number, number, number, number];
+    vertical: boolean;
+    font_size: number;
+    lines_coords: number[][][];
+    lines: string[];
+  }>;
+}
 
-- Status Codes
-  - 200 on success; 200 for batch with per-item errors.
-  - 400 for missing file(s)/invalid engine/invalid type.
-  - 413 for too large.
-  - 500 for unhandled/internal processing errors.
+class MokuroClient {
+  private baseUrl: string;
 
-- Serialization & Headers
-  - JSON only; ensure numpy‑like types serialize to plain JSON numbers/arrays.
-  - CORS header `Access-Control-Allow-Origin: *` on all responses.
+  constructor(baseUrl: string = 'http://localhost:7331') {
+    this.baseUrl = baseUrl;
+  }
 
-- Startup (optional)
-  - If preloading enabled, load each available engine at startup and cache instance.
+  async processImage(
+    imageFile: File,
+    priority: number = 2,
+    engine: string = 'manga-ocr'
+  ): Promise<OCRResult> {
+    // Submit request
+    const formData = new FormData();
+    formData.append('image', imageFile);
+    formData.append('priority', priority.toString());
+    formData.append('ocr_engine', engine);
+    formData.append('force_cpu', 'false');
 
-- Tests (parity checks)
-  - Verify all examples and error messages above.
-  - Confirm `/api/info` keys and structure.
-  - Confirm batch mixed success/error behavior (HTTP 200, per-item error objects).
+    const submitResponse = await fetch(`${this.baseUrl}/api/ocr`, {
+      method: 'POST',
+      body: formData
+    });
 
+    if (!submitResponse.ok) {
+      throw new Error(`Submit failed: ${await submitResponse.text()}`);
+    }
+
+    const { request_id } = await submitResponse.json();
+
+    // Poll for results
+    const maxAttempts = 60;
+    const delays = [100, 100, 200, 200, 500, 500, 1000]; // ms
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const resultResponse = await fetch(
+        `${this.baseUrl}/api/result/${request_id}`
+      );
+
+      if (!resultResponse.ok) {
+        throw new Error('Request not found');
+      }
+
+      const result = await resultResponse.json();
+
+      if (result.status === 'completed') {
+        return result.result;
+      } else if (result.status === 'failed') {
+        throw new Error(`OCR failed: ${result.error}`);
+      }
+
+      // Wait before next poll
+      const delay = delays[Math.min(attempt, delays.length - 1)];
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+
+    throw new Error('OCR timeout');
+  }
+}
+```
+
+### Batch Processing Example
+```python
+import asyncio
+import aiohttp
+from pathlib import Path
+
+async def process_batch(image_paths, priority=2):
+    """Process multiple images concurrently"""
+    base_url = "http://localhost:7331"
+    
+    async with aiohttp.ClientSession() as session:
+        # Submit all images
+        request_ids = []
+        for path in image_paths:
+            with open(path, 'rb') as f:
+                data = aiohttp.FormData()
+                data.add_field('image', f, filename=Path(path).name)
+                data.add_field('priority', str(priority))
+                data.add_field('ocr_engine', 'manga-ocr')
+                
+                async with session.post(f"{base_url}/api/ocr", data=data) as resp:
+                    result = await resp.json()
+                    request_ids.append((path, result['request_id']))
+        
+        # Collect results
+        results = {}
+        pending = request_ids.copy()
+        
+        while pending:
+            await asyncio.sleep(0.5)
+            still_pending = []
+            
+            for path, request_id in pending:
+                async with session.get(f"{base_url}/api/result/{request_id}") as resp:
+                    result = await resp.json()
+                    
+                    if result['status'] == 'completed':
+                        results[path] = result['result']
+                    elif result['status'] == 'failed':
+                        results[path] = {'error': result.get('error')}
+                    else:
+                        still_pending.append((path, request_id))
+            
+            pending = still_pending
+        
+        return results
+
+# Usage
+images = ['page1.jpg', 'page2.jpg', 'page3.jpg']
+results = asyncio.run(process_batch(images, priority=1))
+```
+
+---
+
+## Performance & Limits
+
+### Request Limits
+- **Max image size**: 100MB (all priorities)
+- **Max filename length**: 255 characters
+- **Max queue size**: 50 requests
+- **Request timeout**: 30 seconds default
+- **Result cache TTL**: 5 minutes
+
+### Performance Characteristics
+- **Queue response time**: <10ms
+- **OCR processing time**: 0.5-3 seconds per image (engine dependent)
+- **Concurrent processing**: Up to 6 requests (4 critical + 2 other)
+- **Engine initialization**: First request ~2-5 seconds, subsequent <100ms
+
+### Optimization Tips
+
+1. **Use appropriate priority levels:**
+   - CRITICAL: User-facing, real-time needs
+   - HIGH: Important but can wait briefly
+   - NORMAL: Standard processing
+   - LOW: Batch jobs with flexible timing
+   - BACKGROUND: Non-urgent bulk processing
+
+2. **Engine selection for performance:**
+   - `rapidocr`: Fastest for simple text
+   - `manga-ocr`: Best for manga/comics
+   - `lens`: Good balance of speed/accuracy
+
+3. **Batch processing:**
+   - Submit multiple requests with BACKGROUND priority
+   - Use async/concurrent clients for parallel submission
+   - Monitor queue status to avoid overload
+
+---
+
+## Monitoring & Debugging
+
+### Health Monitoring
+```bash
+# Check server health and stats
+curl http://localhost:7331/health | jq
+
+# Monitor queue status
+watch -n 1 'curl -s http://localhost:7331/api/queue/status | jq'
+```
+
+### Log Analysis
+The server uses structured logging with request IDs:
+```
+2024-01-15 10:23:45.123 | INFO     | a1b2c3d4     | P2 | Queued NORMAL request | Position: 3
+2024-01-15 10:23:45.456 | INFO     | a1b2c3d4     | P2 | Started processing NORMAL request
+2024-01-15 10:23:47.789 | SUCCESS  | a1b2c3d4     | P2 | NORMAL request completed
+```
+
+### Common Issues & Solutions
+
+**Issue: Requests timing out**
+- Check `/health` for queue length
+- Consider using higher priority
+- Verify OCR engine is working
+
+**Issue: 503 Queue Full errors**
+- Reduce submission rate
+- Use background priority for batch jobs
+- Increase `MOKURO_REQUEST_QUEUE_SIZE`
+
+**Issue: Slow processing**
+- Check if forcing CPU mode
+- Monitor engine pool usage
+
+---
+
+## Security Considerations
+
+### Input Validation
+- Filename sanitization (path traversal prevention)
+- File size limits based on priority
+- Priority value clamping (0-4)
+- Unknown form field size limits
+
+### Rate Limiting
+- Per-IP request limits via slowapi
+- Queue size limits
+- Priority-based eviction
+
+### CORS Configuration
+- Currently allows all origins (`*`)
+- Configure for production use
+
+---
+
+## Appendix
+
+### OCR Result Schema
+```typescript
+interface OCRResult {
+  version: string;           // OCR version (e.g., "0.2.2")
+  img_width: number;         // Image width in pixels
+  img_height: number;        // Image height in pixels
+  blocks: TextBlock[];       // Array of detected text blocks
+}
+
+interface TextBlock {
+  box: [number, number, number, number];  // [x1, y1, x2, y2] bounding box
+  vertical: boolean;         // Text orientation
+  font_size: number;         // Estimated font size
+  lines_coords: number[][][]; // Coordinates for each line
+  lines: string[];           // Extracted text lines
+}
+```
+
+### Complete cURL Examples
+```bash
+# Submit with CRITICAL priority
+curl -X POST http://localhost:7331/api/ocr \
+  -F "image=@manga_page.jpg" \
+  -F "priority=0" \
+  -F "ocr_engine=manga-ocr"
+
+# Check result
+curl http://localhost:7331/api/result/a1b2c3d4
+
+# Get queue status
+curl http://localhost:7331/api/queue/status
+
+# Get available engines
+curl http://localhost:7331/api/info
+
+# Health check
+curl http://localhost:7331/health
+```
+
+### Docker Deployment
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY . .
+
+RUN pip install mokuro[api]
+
+EXPOSE 7331
+
+CMD ["mokuro-api"]
+```
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  mokuro-api:
+    build: .
+    ports:
+      - "7331:7331"
+    environment:
+      - MOKURO_API_HOST=0.0.0.0
+      - MOKURO_API_PORT=7331
+      - MOKURO_MAX_PARALLEL_CRITICAL=4
+      - MOKURO_MAX_PARALLEL_OTHER=2
+    volumes:
+      - ./config:/app/config
+    restart: unless-stopped
+```
+
+---
+
+## Support & Resources
+
+- **GitHub Repository**: https://github.com/kha-white/mokuro
+- **Issue Tracker**: https://github.com/kha-white/mokuro/issues
+- **OpenAPI Docs**: http://localhost:7331/docs (when running)
+
+---
+
+*Last Updated: API Version 0.3.6*

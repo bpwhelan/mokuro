@@ -1,0 +1,119 @@
+# Mokuro Enhanced API Server Configuration
+# All values can be overridden via environment variables with MOKURO_ prefix
+
+server:
+  host: "0.0.0.0"
+  port: 7331
+  debug: false
+  preload_models: true
+  
+  # Connection limits
+  max_connections: 100
+  max_connections_per_ip: 10
+  keepalive_timeout: 60  # seconds
+  request_timeout: 30  # seconds
+
+rate_limiting:
+  # Global limits (across all endpoints)
+  global:
+    - "10 per second"
+    - "600 per minute"
+    - "10000 per hour"
+  
+  # Per-endpoint limits
+  endpoints:
+    /api/ocr:
+      - "5 per second"
+      - "300 per minute"
+      - "5000 per hour"
+    /api/ocr/batch:
+      - "5 per second"
+      - "300 per minute"
+    /health:
+      - "10 per second"
+    /api/info:
+      - "10 per second"
+    /api/status:
+      - "10 per second"
+
+processing:
+  # Maximum concurrent OCR operations
+  max_parallel_ocr: 3
+  
+  # Maximum queued requests waiting for processing
+  request_queue_size: 10
+  
+  # Timeout for individual OCR operations
+  ocr_timeout: 30  # seconds
+  
+  # Result cache TTL
+  cache_ttl: 300  # seconds (5 minutes)
+  
+  # Maximum cache size (number of results)
+  cache_max_size: 100
+
+memory:
+  # Maximum file upload size
+  max_upload_size: 52428800  # 50MB in bytes
+  
+  # Maximum memory usage percentage before rejecting requests
+  max_memory_percent: 80
+  
+  # Trigger garbage collection when memory exceeds this percentage
+  gc_threshold: 70
+
+health:
+  # Cache TTL for health endpoint
+  cache_ttl: 5  # seconds
+
+# OCR Engine specific settings
+engines:
+  manga_ocr:
+    # Manga OCR specific settings
+    enabled: true
+    priority: 1
+    
+  lens:
+    # Google Lens settings
+    enabled: true
+    priority: 2
+    retry_count: 3
+    retry_delay: 1  # seconds
+    
+  rapidocr:
+    enabled: true
+    priority: 3
+    
+  easyocr:
+    enabled: true
+    priority: 4
+    gpu: true  # Use GPU if available
+    
+  # Add other engines as needed...
+
+# Monitoring and metrics
+monitoring:
+  # Enable Prometheus metrics endpoint
+  metrics_enabled: false
+  metrics_port: 9090
+  
+  # Enable structured logging
+  structured_logging: true
+  
+  # Log level (debug, info, warning, error)
+  log_level: "info"
+
+# Security settings
+security:
+  # Enable CORS
+  cors_enabled: true
+  cors_origins: ["*"]
+  
+  # Request ID header name
+  request_id_header: "X-Request-ID"
+  
+  # Enable request validation
+  validate_requests: true
+  
+  # Maximum request body size (includes all form data)
+  max_request_size: 104857600  # 100MB total
