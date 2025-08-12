@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy project files
-COPY pyproject.toml README.md LICENSE /app/
+COPY pyproject.toml LICENSE API.md /app/
 COPY mokuro /app/mokuro
 COPY comic_text_detector /app/comic_text_detector
 
@@ -52,12 +52,19 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu126 \
         torch torchvision torchaudio && \
+    # Set version for setuptools-scm
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_MOKURO=0.1.0 pip install --no-cache-dir \
+        -e . && \
     pip install --no-cache-dir \
-        ".[api,owocr]" \
+        fastapi>=0.110 \
+        uvicorn[standard] \
+        python-multipart \
         slowapi>=0.1.9 \
         cachetools>=5.3.0 \
         psutil>=5.9.0 \
         pyyaml>=6.0 && \
+    # Install owocr extras if needed
+    pip install --no-cache-dir owocr>=1.14.7 || true && \
     # Prefer GPU ONNX Runtime for RapidOCR; replace CPU build if present
     pip uninstall -y onnxruntime || true && \
     pip install --no-cache-dir onnxruntime-gpu
