@@ -72,11 +72,13 @@ class MokuroGenerator:
 
     def init_models(self):
         if self.mpocr is None:
+            # Filter out skip_pattern from kwargs since MangaPageOcr doesn't accept it
+            mpocr_kwargs = {k: v for k, v in self.kwargs.items() if k != 'skip_pattern'}
             self.mpocr = MangaPageOcr(
                 self.pretrained_model_name_or_path,
                 force_cpu=self.force_cpu,
                 disable_ocr=self.disable_ocr,
-                **self.kwargs,
+                **mpocr_kwargs,
             )
 
     def process_volume(self, volume: Volume, ignore_errors=False, no_cache=False):
