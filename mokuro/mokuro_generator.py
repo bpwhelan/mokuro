@@ -1,4 +1,5 @@
 from json import JSONDecodeError
+import re
 
 from loguru import logger
 from tqdm import tqdm
@@ -19,6 +20,8 @@ class MokuroGenerator:
         self.kwargs = kwargs
         self.mpocr = None
         self.ocr_engine = kwargs.get("ocr_engine", "manga_ocr")
+        self.skip_pattern = kwargs.get("skip_pattern")
+        self.skip_regex = re.compile(self.skip_pattern) if self.skip_pattern else None
 
     @staticmethod
     def _engine_code_from_arg(ocr_engine: str | None):
@@ -110,8 +113,26 @@ class MokuroGenerator:
                     already_processed = False
 
                 if no_cache or not already_processed:
-                    self.init_models()
-                    result = self.mpocr(volume.path_in / img_path_rel)
+                    # Check if this page should be skipped based on regex pattern
+                    should_skip = False
+                    if self.skip_regex:
+                        filename = str(img_path_rel)
+                        if self.skip_regex.search(filename):
+                            should_skip = True
+                            logger.debug(f"Skipping page {filename} (matches skip pattern)")
+                    
+                    if should_skip:
+                        # Create a stub JSON with empty blocks for compatibility
+                        result = {
+                            "version": "0.2.2",
+                            "img_height": 0,
+                            "img_width": 0,
+                            "blocks": []  # Empty blocks array indicates no text detected
+                        }
+                    else:
+                        self.init_models()
+                        result = self.mpocr(volume.path_in / img_path_rel)
+                    
                     json_path.parent.mkdir(parents=True, exist_ok=True)
                     dump_json(result, json_path)
             except Exception as e:
