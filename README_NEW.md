@@ -1,0 +1,286 @@
+# Mokuro - Advanced Manga OCR for Browser Reading
+
+<p align="center">
+  <img src="https://github.com/kha-white/mokuro/raw/master/logo.png" alt="Mokuro Logo" width="200">
+</p>
+
+**Mokuro** is a powerful manga OCR (Optical Character Recognition) tool that converts manga images into browser-readable files with selectable text. Designed for Japanese language learners, it enables seamless integration with pop-up dictionaries like Yomitan for instant text lookup while reading manga.
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+# Full installation with all features
+pip install "git+https://github.com/xrishox/mokuro.git@new#egg=mokuro[owocr,api]"
+
+# Basic installation (manga-ocr only)
+pip install "git+https://github.com/xrishox/mokuro.git@new"
+```
+
+### Basic Usage
+
+```bash
+# Process a single volume
+mokuro /path/to/manga/volume --disable_confirmation
+
+# Process with English page skipping
+mokuro /path/to/manga/volume --skip-pattern ".*-en\..*" --disable_confirmation
+
+# Process entire manga library (first 5 volumes per series)
+mokuro --root_dir --first 5 --disable_confirmation
+```
+
+## ✨ Key Features
+
+### 🎯 Smart Batch Processing
+
+- **`--root_dir`**: Process entire manga libraries automatically
+- **`--first N`** / **`--last N`**: Select first/last N volumes per series
+- **`--skip-pattern "regex"`**: Skip pages matching pattern (credits, ads, etc.)
+- **`--zip`**: Create archives with volume + all OCR results
+
+### 🔍 13+ OCR Engines
+
+Choose from multiple OCR providers for optimal results:
+
+```bash
+# Default manga-specific OCR
+mokuro /path/to/volume
+
+# Auto-select best engine for your OS
+mokuro /path/to/volume --ocr-engine owocr:auto
+
+# Use Google Lens
+mokuro /path/to/volume --ocr-engine owocr:glens
+
+# Chain multiple engines
+mokuro /path/to/volume --ocr-engine "owocr:mangaocr,glens,easyocr"
+```
+
+**Available Engines:**
+- `manga_ocr` - Default, optimized for manga (outputs `.mo.mokuro`)
+- `owocr:easyocr` - Multi-language support (`.eo.mokuro`)
+- `owocr:rapidocr` - Fast ONNX-based (`.ro.mokuro`)
+- `owocr:glens` - Google Lens (`.gl.mokuro`)
+- `owocr:gvision` - Google Vision API (`.gv.mokuro`)
+- `owocr:azure` - Azure Image Analysis (`.az.mokuro`)
+- `owocr:avision` - Apple Vision (macOS) (`.av.mokuro`)
+- `owocr:winrtocr` - Windows OCR (`.wo.mokuro`)
+- And more!
+
+### 📚 Advanced Volume Management
+
+```bash
+# Process all series in current directory
+mokuro --root_dir --disable_confirmation
+
+# Process first 5 and last 2 volumes of each series
+mokuro --root_dir --first 5 --last 2
+
+# Process all volumes in a parent directory
+mokuro --parent_dir /manga/OnePiece --first 10
+
+# Skip processing if zip already exists
+mokuro --root_dir --zip --disable_confirmation
+```
+
+### 🎨 Format Support
+
+**Image Formats:**
+- Standard: JPG, PNG, WebP
+- Modern: AVIF, JPEG XL
+- Archives: ZIP, CBZ
+
+**Output Formats:**
+- `.mokuro` - Modern JSON format (recommended)
+- Legacy HTML with `--legacy-html` flag
+
+### 🚫 Smart Page Filtering
+
+Skip unwanted pages while maintaining compatibility:
+
+```bash
+# Skip English translated pages
+mokuro /volume --skip-pattern ".*-en\..*"
+
+# Skip credits and blank pages
+mokuro /volume --skip-pattern ".*_(credits|blank)\.jpg$"
+
+# Skip covers and extras
+mokuro /volume --skip-pattern "^(cover|extra).*"
+```
+
+## 🖥️ API Server
+
+Run mokuro as a high-performance API server:
+
+```bash
+# Start the server
+python -m mokuro.api
+
+# Docker deployment
+docker run -p 7331:7331 mokuro-api
+```
+
+Features:
+- Priority queue system (5 levels)
+- Concurrent processing
+- Rate limiting
+- Result caching
+- OpenAPI documentation at `/docs`
+
+## 📖 Complete CLI Reference
+
+### Core Options
+- `--pretrained_model_name_or_path` - Custom manga-ocr model path
+- `--force_cpu` - Force CPU usage even with GPU available
+- `--disable_ocr` - Generate structure without running OCR
+- `--disable_confirmation` - Skip confirmation prompts
+- `--ignore_errors` - Continue on errors
+
+### OCR Options
+- `--ocr-engine ENGINE` - Select OCR engine
+- `--owocr-config PATH` - JSON config for OCR providers
+- `--skip-pattern REGEX` - Skip pages matching pattern
+
+### Volume Selection
+- `--root_dir` - Process all series in current directory
+- `--parent_dir PATH` - Process all volumes in directory
+- `--first N` - Process first N volumes per series
+- `--last N` - Process last N volumes per series
+
+### Output Options
+- `--legacy-html` - Generate HTML output (deprecated)
+- `--as-one-file` - Embed CSS/JS in HTML
+- `--unzip` - Extract archives in place
+- `--zip` - Create volume+mokuro archives
+- `--no-cache` - Don't use cached OCR results
+
+## 🔧 Configuration
+
+### Provider Configuration
+
+Create a JSON config file for OCR providers:
+
+```json
+{
+  "azure": {
+    "endpoint": "https://your-endpoint.cognitiveservices.azure.com",
+    "api_key": "your-api-key"
+  },
+  "ocrspace": {
+    "api_key": "your-api-key"
+  }
+}
+```
+
+Use with: `mokuro /volume --ocr-engine owocr:azure --owocr-config config.json`
+
+### Environment Variables
+
+```bash
+# API Server
+export MOKURO_API_HOST=0.0.0.0
+export MOKURO_API_PORT=7331
+
+# Concurrency
+export MOKURO_MAX_PARALLEL_CRITICAL=4
+export MOKURO_MAX_PARALLEL_OTHER=2
+
+# Cloud Providers
+export AZURE_VISION_ENDPOINT=https://...
+export AZURE_VISION_KEY=...
+export OCRSPACE_API_KEY=...
+```
+
+## 🐳 Docker
+
+```bash
+# Build with CUDA support
+docker build -t mokuro .
+
+# Run container
+docker run -p 7331:7331 \
+  -v /path/to/manga:/manga \
+  mokuro --root_dir --disable_confirmation
+
+# CPU-only variant
+docker build -f Dockerfile.cpu -t mokuro-cpu .
+```
+
+## 📊 Output Structure
+
+```
+manga_library/
+├── Series_Name/
+│   ├── Volume_001/           # Original manga images
+│   │   ├── page_001.jpg
+│   │   ├── page_002.jpg
+│   │   └── ...
+│   ├── Volume_001.mo.mokuro  # OCR results (manga-ocr)
+│   ├── Volume_001.gl.mokuro  # OCR results (Google Lens)
+│   ├── Volume_001_mokuro.zip # Optional archive
+│   └── _ocr/                 # Cache directory
+│       ├── Volume_001.mo/    # Engine-specific cache
+│       └── Volume_001.gl/
+```
+
+## 🎯 Use Cases
+
+### For Language Learners
+```bash
+# Process study material with dictionary support
+mokuro /manga/yotsubato --disable_confirmation
+# Open in browser with Yomitan extension
+```
+
+### For Libraries/Archives
+```bash
+# Batch process entire collection
+mokuro --root_dir --first 10 --zip --disable_confirmation
+```
+
+### For Developers
+```python
+# Use as Python library
+from mokuro import MokuroGenerator
+
+mg = MokuroGenerator(ocr_engine="owocr:glens")
+mg.process_volume(volume_path)
+```
+
+### For Content Creators
+```bash
+# Skip translated pages, process Japanese only
+mokuro /manga --skip-pattern ".*_eng\..*" --zip
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Areas of interest:
+- Additional OCR engine integrations
+- Performance optimizations
+- Language support beyond Japanese
+- Web reader improvements
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- Original mokuro by [kha-white](https://github.com/kha-white/mokuro)
+- Comic text detector by [dmMaze](https://github.com/dmMaze/comic-text-detector)
+- Manga OCR by [Maciej Budyś](https://github.com/kha-white/manga-ocr)
+
+## 📚 Resources
+
+- [Web Reader](https://reader.mokuro.app)
+- [Documentation](https://github.com/xrishox/mokuro/wiki)
+- [Discord Community](https://discord.gg/mokuro)
+- [Example Notebooks](https://github.com/xrishox/mokuro/tree/new/notebooks)
+
+---
+
+**Note**: This is an enhanced fork with advanced batch processing features. For the original project, visit [kha-white/mokuro](https://github.com/kha-white/mokuro).
