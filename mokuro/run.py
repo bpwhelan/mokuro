@@ -330,13 +330,38 @@ def run(
 
     status_counter = Counter()
 
-    print(f"\nFound {len(vc)} volumes:\n")
-
-    for volume in vc:
-        print(volume)
-        status_counter[volume.status] += 1
-
-    msg = "\nEach of the paths above will be treated as one volume.\n"
+    print(f"\nFound {len(vc)} volumes")
+    
+    # For large collections, show summary instead of listing all volumes
+    if len(vc) > 10:
+        for volume in vc:
+            status_counter[volume.status] += 1
+        
+        # Show status summary
+        print("\nVolume status summary:")
+        for status, count in status_counter.items():
+            print(f"  {status}: {count}")
+        
+        # If root_dir mode, show per-series breakdown
+        if root_dir:
+            print("\nVolumes per series:")
+            series_volume_counts = {}
+            for volume in vc:
+                series_name = volume.path_in.parent.name
+                if series_name not in series_volume_counts:
+                    series_volume_counts[series_name] = 0
+                series_volume_counts[series_name] += 1
+            
+            for series_name in sorted(series_volume_counts.keys()):
+                print(f"  {series_name}: {series_volume_counts[series_name]} volumes")
+    else:
+        # For small collections, show full list as before
+        print()
+        for volume in vc:
+            print(volume)
+            status_counter[volume.status] += 1
+    
+    msg = "\nEach path will be treated as one volume.\n"
     print(msg)
 
     if not disable_confirmation:
@@ -414,6 +439,15 @@ def run(
 
             num_sucessful = 0
             for i, volume in enumerate(vc):
+                # Check if zip already exists when --zip flag is used
+                if zip and volume.path_in.is_dir():
+                    volume_name = volume.path_in.name
+                    expected_zip_path = volume.path_title / f"{volume_name}_mokuro.zip"
+                    if expected_zip_path.exists():
+                        logger.info(f"Skipping {i + 1}/{len(vc)}: {volume.path_in} (zip already exists: {expected_zip_path.name})")
+                        num_sucessful += 1  # Count as successful since zip exists
+                        continue
+                
                 logger.info(f"Processing {i + 1}/{len(vc)}: {volume.path_in}")
 
                 try:

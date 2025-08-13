@@ -26,10 +26,10 @@ class MokuroGenerator:
     @staticmethod
     def _engine_code_from_arg(ocr_engine: str | None):
         if not ocr_engine:
-            return None
+            return "mo"  # Default to manga-ocr code
         e = ocr_engine.lower()
         if e in ("manga_ocr", "mocr", "manga-ocr"):
-            return None  # native manga-ocr has no code
+            return "mo"  # native manga-ocr uses "mo" code for consistency
         if not e.startswith("owocr:"):
             return None
         p = e.split(":", 1)[1].strip().lower()
@@ -124,12 +124,20 @@ class MokuroGenerator:
                             logger.debug(f"Skipping page {filename} (matches skip pattern)")
                     
                     if should_skip:
-                        # Create a stub JSON with empty blocks for compatibility
+                        # Create a stub JSON exactly like what OCR would produce with no text found
+                        # We need actual image dimensions for proper HTML/mokuro compatibility
+                        from mokuro.utils import imread
+                        img_path = volume.path_in / img_path_rel
+                        img = imread(img_path)
+                        if img is None:
+                            raise ValueError(f"Could not read image: {img_path}")
+                        H, W, *_ = img.shape
+                        
                         result = {
-                            "version": "0.2.2",
-                            "img_height": 0,
-                            "img_width": 0,
-                            "blocks": []  # Empty blocks array indicates no text detected
+                            "version": __version__,
+                            "img_width": W,
+                            "img_height": H,
+                            "blocks": []  # Empty blocks array - no text detected
                         }
                     else:
                         self.init_models()
