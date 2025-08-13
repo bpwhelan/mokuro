@@ -1,6 +1,7 @@
 This README is ai slop written by Claude. Big credit to kha-white for the original mokuro and AuroraWright for owocr.
 
 https://github.com/AuroraWright/owocr
+
 https://github.com/kha-white/mokuro
 
 For information on the server api see API.md
