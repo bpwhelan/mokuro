@@ -1,3 +1,10 @@
+This README is ai slop written by Claude. Big credit to kha-white for the original mokuro and AuroraWright for owocr.
+
+https://github.com/AuroraWright/owocr
+https://github.com/kha-white/mokuro
+
+For information on the server api see API.md
+
 # Mokuro - Advanced Manga OCR for Browser Reading
 
 <p align="center">
@@ -23,9 +30,6 @@ pip install "git+https://github.com/xrishox/mokuro.git@new"
 ```bash
 # Process a single volume
 mokuro /path/to/manga/volume --disable_confirmation
-
-# Process with English page skipping
-mokuro /path/to/manga/volume --skip-pattern ".*-en\..*" --disable_confirmation
 
 # Process entire manga library (first 5 volumes per series)
 mokuro --root_dir --first 5 --disable_confirmation
