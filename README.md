@@ -4,7 +4,12 @@ https://github.com/AuroraWright/owocr
 
 https://github.com/kha-white/mokuro
 
-pip install "git+https://github.com/xrishox/mokuro.git@new#egg=mokuro[owocr,api]" to install. --help to see the options.
+Run
+```
+pip install "git+https://github.com/xrishox/mokuro.git@new#egg=mokuro[owocr,api]" 
+```
+
+to install. --help to see the options.
 
 For information on the server api see API.md. Command to run it is mokuro-api
 
