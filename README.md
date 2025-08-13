@@ -101,32 +101,9 @@ mokuro --root_dir --zip --disable_confirmation
 - `.mokuro` - Modern JSON format (recommended)
 - Legacy HTML with `--legacy-html` flag
 
-### 🚫 Smart Page Filtering
 
-Skip unwanted pages while maintaining compatibility:
-
-```bash
-# Skip English translated pages
-mokuro /volume --skip-pattern ".*-en\..*"
-
-# Skip credits and blank pages
-mokuro /volume --skip-pattern ".*_(credits|blank)\.jpg$"
-
-# Skip covers and extras
-mokuro /volume --skip-pattern "^(cover|extra).*"
-```
 
 ## 🖥️ API Server
-
-Run mokuro as a high-performance API server:
-
-```bash
-# Start the server
-python -m mokuro.api
-
-# Docker deployment
-docker run -p 7331:7331 mokuro-api
-```
 
 Features:
 - Priority queue system (5 levels)
@@ -162,25 +139,6 @@ Features:
 - `--zip` - Create volume+mokuro archives
 - `--no-cache` - Don't use cached OCR results
 
-## 🔧 Configuration
-
-### Provider Configuration
-
-Create a JSON config file for OCR providers:
-
-```json
-{
-  "azure": {
-    "endpoint": "https://your-endpoint.cognitiveservices.azure.com",
-    "api_key": "your-api-key"
-  },
-  "ocrspace": {
-    "api_key": "your-api-key"
-  }
-}
-```
-
-Use with: `mokuro /volume --ocr-engine owocr:azure --owocr-config config.json`
 
 ### Environment Variables
 
@@ -209,9 +167,6 @@ docker build -t mokuro .
 docker run -p 7331:7331 \
   -v /path/to/manga:/manga \
   mokuro --root_dir --disable_confirmation
-
-# CPU-only variant
-docker build -f Dockerfile.cpu -t mokuro-cpu .
 ```
 
 ## 📊 Output Structure
@@ -233,59 +188,4 @@ manga_library/
 
 ## 🎯 Use Cases
 
-### For Language Learners
-```bash
-# Process study material with dictionary support
-mokuro /manga/yotsubato --disable_confirmation
-# Open in browser with Yomitan extension
-```
 
-### For Libraries/Archives
-```bash
-# Batch process entire collection
-mokuro --root_dir --first 10 --zip --disable_confirmation
-```
-
-### For Developers
-```python
-# Use as Python library
-from mokuro import MokuroGenerator
-
-mg = MokuroGenerator(ocr_engine="owocr:glens")
-mg.process_volume(volume_path)
-```
-
-### For Content Creators
-```bash
-# Skip translated pages, process Japanese only
-mokuro /manga --skip-pattern ".*_eng\..*" --zip
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Areas of interest:
-- Additional OCR engine integrations
-- Performance optimizations
-- Language support beyond Japanese
-- Web reader improvements
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-- Original mokuro by [kha-white](https://github.com/kha-white/mokuro)
-- Comic text detector by [dmMaze](https://github.com/dmMaze/comic-text-detector)
-- Manga OCR by [Maciej Budyś](https://github.com/kha-white/manga-ocr)
-
-## 📚 Resources
-
-- [Web Reader](https://reader.mokuro.app)
-- [Documentation](https://github.com/xrishox/mokuro/wiki)
-- [Discord Community](https://discord.gg/mokuro)
-- [Example Notebooks](https://github.com/xrishox/mokuro/tree/new/notebooks)
-
----
-
-**Note**: This is an enhanced fork with advanced batch processing features. For the original project, visit [kha-white/mokuro](https://github.com/kha-white/mokuro).
