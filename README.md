@@ -4,13 +4,12 @@ https://github.com/AuroraWright/owocr
 
 https://github.com/kha-white/mokuro
 
-For information on the server api see API.md
+pip install "git+https://github.com/xrishox/mokuro.git@new#egg=mokuro[owocr,api]" to install. --help to see the options.
+
+For information on the server api see API.md. Command to run it is mokuro-api
 
 # Mokuro - Advanced Manga OCR for Browser Reading
 
-<p align="center">
-  <img src="https://github.com/kha-white/mokuro/raw/master/logo.png" alt="Mokuro Logo" width="200">
-</p>
 
 **Mokuro** is a powerful manga OCR (Optical Character Recognition) tool that converts manga images into browser-readable files with selectable text. Designed for Japanese language learners, it enables seamless integration with pop-up dictionaries like Yomitan for instant text lookup while reading manga.
 
@@ -185,7 +184,5 @@ manga_library/
 │       ├── Volume_001.mo/    # Engine-specific cache
 │       └── Volume_001.gl/
 ```
-
-## 🎯 Use Cases
 
 
